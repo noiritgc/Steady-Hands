@@ -680,8 +680,10 @@ function finish(outcome) {
   const last = soloRun || outcome === 'lost' || curIdx >= nTraining() - 1;
   card(`<div class="grade">${res.grade}</div>${head}<p>${cur.title} · <b>${points}</b> points</p>
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2] >= 0 ? '+' : ''}${Math.round(r[2])}</td></tr>`).join('')}</table>
-    <button data-go="${last ? 'report' : 'next'}">${last ? 'Case report (Enter)' : 'Next procedure (Enter)'}</button>`);
+    <button data-go="${last ? 'report' : 'next'}">${last ? 'Case report (Enter)' : 'Next procedure (Enter)'}</button>
+    <div id="or-debrief"></div>`);
   if (outcome === 'done') chime(); else alarm();
+  if (window.MagTrackOR.onResult) window.MagTrackOR.onResult(res, rows);   // attending.js debriefs here
 }
 function report() {
   mode = 'report'; hud(false); clearProc();
@@ -776,5 +778,8 @@ window.MagTrackOR = {
   onFrame(fn) { frameHooks.push(fn); },
   offFrame(fn) { const i = frameHooks.indexOf(fn); if (i >= 0) frameHooks.splice(i, 1); },
   register(op) { PROCS.push(op); },
+  procs: () => PROCS.map((p, i) => ({ index: i, id: p.id, title: p.title, op: !!p.op })),
+  root,
+  onResult: null,   // set by attending.js: (result, rows) => void
 };
 })();

@@ -39,6 +39,12 @@ Mouse clicks work too. Key presses and game hits are logged in recordings.
 
 **Auto-zero** (on by default) keeps the background up to date. When no magnet is found and every chip's reading is small and steady for about 1.5 s, it folds the change into the zero. That covers the board being nudged, a chip's zero shifting after a strong field, or a magnet parked well away. A big leftover (over 100 µT) still needs **Zero** with magnets moved away.
 
+## Surgery game and AI attending
+
+Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour removal, biopsy) teach the controls with an x-ray view, then **Operations** (appendectomy, heart transplant) are multi-step cartoon surgeries where the instrument changes each step: scalpel, bone saw, retractor, clamp, forceps, hands, needle.
+
+**🩺 AI attending** (bottom left in the game): after each procedure, Claude (`claude-opus-5-5`) reads the game's measurements (points per step, mm off the line, tremor, angle error, blood loss, vessel hits) and your recent attempts, and returns a short debrief: what went well, the one thing to fix (tied to a measured number), and which drill to do next. The game keeps the score; Claude only explains it. It needs internet and an Anthropic API key, which you paste in the game: the key stays in that browser's localStorage and is sent only to Anthropic (the official SDK is loaded from jsdelivr, pinned). Don't enter a key on a shared computer, and don't host the page publicly with a key in it. Debriefs are logged in recordings (`or_debrief`) so you can measure progress.
+
 ## Calibrating chip orientation
 
 The viewer assumes every chip is mounted the same way. If a breakout is turned or flipped, its arrow points the wrong way. To measure how each chip is really mounted:
@@ -120,6 +126,8 @@ Values are in microtesla, ordered by multiplexer channel; `nan` means that senso
 
 - `viewer.html`: the 3D viewer (Web Serial + three.js), recording, replay and orientation calibration
 - `controller.js`: controller mode (cursor, flip-to-click, keyboard, target game)
+- `surgery.js`, `operations.js`: the surgery game (training drills, multi-step operations)
+- `attending.js`: the AI attending debrief (Claude via the Anthropic SDK)
 - `magmath.js`: magnet fit, orientation calibration and recording parser, shared by the viewer and `tools/analyze.js`
 - `tools/analyze.js`: command-line report for a recording
 - `firmware/code.py`: CircuitPython firmware
