@@ -110,11 +110,13 @@ else {
   if (r.error) out('failed: ' + r.error);
   else {
     calC = r.C;
-    out(`${r.samples} samples, spread ${r.spreadUt.toFixed(1)} uT in the least-turned direction${r.spreadUt < 12 ? '  << not turned enough, unreliable' : ''}`);
+    out(`${r.samples} of ${r.total} samples used (${r.dropped} disturbed), spread ${r.spreadUt.toFixed(1)} uT in the least-turned direction`);
     out(`reference group (taken as mounted like AXIS_MAP): ${r.group.map(i => 'ch' + i).join(', ')}`);
+    out('chip  orientation                                  small tilt            applied   misfit   noise  ratio  |B| Earth  offset');
     r.sensors.forEach((s, i) => out(s.live
-      ? `ch${i}  ${s.text.padEnd(46)} misfit ${s.residUt.toFixed(1).padStart(5)} uT  ${s.snapErrDeg.toFixed(1).padStart(5)}° from square  |B| ${s.earthUt.toFixed(1)} uT  offset ${fmtV(s.offset)}`
+      ? `ch${i}  ${s.text.padEnd(44)} ${(s.tiltDeg.toFixed(1) + '° ± ' + s.uncDeg.toFixed(1) + '°').padEnd(20)}  ${(s.measured ? 'tilt' : 'square').padEnd(7)} ${s.misfitUt.toFixed(1).padStart(5)} uT ${s.noiseUt.toFixed(1).padStart(4)} uT ${s.ratio.toFixed(1).padStart(5)}  ${s.earthUt.toFixed(1).padStart(6)} uT  ${fmtV(s.offset)}`
       : `ch${i}  ${s.text}`));
+    for (const w of r.warnings) out('!! ' + w);
     if (r.spin) out(`spin: field turned ${r.spin.turnedDeg.toFixed(0)}° (positive = not mirrored), vertical ${r.spin.verticalUt.toFixed(1)} uT, horizontal ${r.spin.horizontalUt.toFixed(1)} uT`);
     out('SENSOR_CAL for viewer.html:');
     out(JSON.stringify({ C: r.C.map(C => C.map(row => row.map(x => +x.toFixed(4)))), when: startEv ? startEv.data.wall : null }));

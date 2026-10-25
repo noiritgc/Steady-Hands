@@ -15,6 +15,7 @@ const matMul = (A, B) => A.map(r => [0, 1, 2].map(j => r[0] * B[0][j] + r[1] * B
 const transpose = A => [0, 1, 2].map(i => [A[0][i], A[1][i], A[2][i]]);
 const det3 = A => dot(A[0], [A[1][1] * A[2][2] - A[1][2] * A[2][1], A[1][2] * A[2][0] - A[1][0] * A[2][2], A[1][0] * A[2][1] - A[1][1] * A[2][0]]);
 const mean3 = vs => scale(vs.reduce(add, [0, 0, 0]), 1 / vs.length);
+const median = xs => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[s.length >> 1] : NaN; };
 const angleDeg = (a, b) => Math.acos(clamp(dot(a, b) / (norm(a) * norm(b) || 1), -1, 1)) * 180 / Math.PI;
 
 // Solve A x = b (n x n) by Gaussian elimination with partial pivoting; null if singular.
@@ -91,6 +92,9 @@ function fitRotation(P, Q) {
   return quatToMat(normalizeQ(vectors[values.indexOf(Math.max(...values))]));
 }
 const normalizeQ = q => { const n = Math.hypot(...q) || 1; return q.map(x => x / n); };
+
+// Rotation closest to an arbitrary 3x3 matrix A (R e_k should match A's columns).
+const nearestRotation = A => fitRotation([[1, 0, 0], [0, 1, 0], [0, 0, 1]], transpose(A));
 
 const rotationAngle = R => Math.acos(clamp((R[0][0] + R[1][1] + R[2][2] - 1) / 2, -1, 1)) * 180 / Math.PI;
 
@@ -236,15 +240,39 @@ function dipoleSeeds(pos, fields) {
 // "Tumble" calibration. While the board is turned through many orientations away from magnets, every chip
 // sees the same Earth field, each in its own axes. Comparing chips after removing their means (which also
 // removes each chip's offset) gives each chip's rotation relative to the others. The largest group of
-// chips that agree is taken as mounted the way axisMap assumes.
+// chips that agree is taken as mounted the way axisMap assumes, and "level" is that group's average.
+// Small tilts are only applied when they are clearly measurable; otherwise each chip gets the nearest
+// square orientation, since a wrong tilt would skew every arrow.
 // tumble/spin: raw 15-value samples; axisMap: sensor -> scene matrix shared by correctly mounted chips.
 function calibrateTumble(tumble, spin, axisMap, n = 5) {
   const vec = (r, i) => [r[3 * i], r[3 * i + 1], r[3 * i + 2]];
   const valid = (r, i) => !vec(r, i).some(isNaN);
-  const live = [...Array(n).keys()].filter(i => tumble.filter(r => valid(r, i)).length >= 0.8 * tumble.length && tumble.length);
-  const rows = tumble.filter(r => live.every(i => valid(r, i)));
-  if (live.length < 2 || rows.length < 50)
-    return { error: `need at least 50 samples from at least 2 chips (got ${rows.length} samples, ${live.length} chips)` };
+  const live = [...Array(n).keys()].filter(i => tumble.length && tumble.filter(r => valid(r, i)).length >= 0.8 * tumble.length);
+  const all = tumble.filter(r => live.every(i => valid(r, i)));
+  if (live.length < 2 || all.length < 50)
+    return { error: `need at least 50 samples from at least 2 chips (got ${all.length} samples, ${live.length} chips)` };
+
+  // 1. Leave out samples where something besides the Earth's field reached a chip. Each chip's readings
+  //    should lie on a sphere (fixed field strength around a fixed offset); refit without outliers until stable,
+  //    also dropping 5 samples either side so the approach and retreat of the disturbance go too.
+  let keep = all.map(() => true), sph = [], lim = [];
+  for (let it = 0; it < 5; it++) {
+    const kept = all.filter((_, k) => keep[k]);
+    if (kept.length < 50) break;
+    for (const i of live) sph[i] = fitSphere(kept.map(r => vec(r, i)));
+    const res = all.map(r => live.map(i => Math.abs(norm(sub(vec(r, i), sph[i].center)) - sph[i].radius)));
+    lim = live.map((_, j) => Math.max(4, 4 * 1.4826 * median(res.filter((_, k) => keep[k]).map(x => x[j]))));
+    const bad = res.map(x => x.some((v, j) => v > lim[j]));
+    const next = all.map((_, k) => { for (let d = -5; d <= 5; d++) if (bad[k + d]) return false; return true; });
+    if (next.every((x, k) => x === keep[k])) break;
+    keep = next;
+  }
+  const idx = all.map((_, k) => k).filter(k => keep[k]);
+  const dropped = all.length - idx.length;
+  if (idx.length < 50)
+    return { error: `the field kept changing during the tumble (${dropped} of ${all.length} samples disturbed). Move away from magnets, phones, computers and metal furniture and try again` };
+  const rows = idx.map(k => all[k]);
+  for (const i of live) sph[i] = fitSphere(rows.map(r => vec(r, i)));
 
   const per = [], centered = [];
   for (const i of live) {
@@ -258,32 +286,76 @@ function calibrateTumble(tumble, spin, axisMap, n = 5) {
   const cov = [0, 1, 2].map(a => [0, 1, 2].map(b => centered[ref].reduce((t, v) => t + v[a] * v[b], 0) / rows.length));
   const spreadUt = Math.sqrt(Math.max(0, Math.min(...eigSym(cov).values)));
 
-  const toRef = [], snaps = [];
-  for (const i of live) { toRef[i] = fitRotation(centered[i], centered[ref]); snaps[i] = snapRotation(toRef[i]); }
+  // 2. Square orientation of each chip: group chips by their rotation to the reference, rounded to 90°.
+  const snaps = [];
+  for (const i of live) snaps[i] = snapRotation(fitRotation(centered[i], centered[ref]));
   const groups = {};
   for (const i of live) (groups[JSON.stringify(snaps[i].R)] ||= []).push(i);
   const biggest = Object.values(groups).sort((a, b) => b.length - a.length || b.includes(ref) - a.includes(ref))[0];
   const G = snaps[biggest[0]].R;   // axes of the biggest group -> reference chip axes
 
+  // 3. Measured orientation (chip axes -> the group's average axes) from a subset of samples.
+  const orient = sel => {
+    const q0 = [], q = [];
+    for (const i of live) q0[i] = matMul(transpose(G), fitRotation(sel.map(t => centered[i][t]), sel.map(t => centered[ref][t])));
+    const F = nearestRotation(biggest.reduce((A, k) => A.map((r, a) => r.map((x, b) => x + q0[k][a][b])), [[0, 0, 0], [0, 0, 0], [0, 0, 0]]));
+    for (const i of live) q[i] = matMul(transpose(F), q0[i]);
+    return q;
+  };
+  const ts = rows.map((_, t) => t), half = rows.length >> 1;
+  const Qm = orient(ts), Qa = orient(ts.slice(0, half)), Qb = orient(ts.slice(half));
+
   const sensors = [...Array(n).keys()].map(i => {
     if (!live.includes(i)) return { live: false, C: axisMap, text: 'no data (left as is)' };
-    const Q = matMul(transpose(G), toRef[i]);   // chip i axes -> axes of a correctly mounted chip
-    const C = matMul(axisMap, Q);
-    const target = centered[ref].map(v => matVec(transpose(G), v));
-    const residUt = Math.sqrt(centered[i].reduce((t, v, k) => t + dot(sub(matVec(Q, v), target[k]), sub(matVec(Q, v), target[k])), 0) / rows.length);
-    const sph = fitSphere(per[i]);
+    const square = snapRotation(Qm[i]);
+    const tiltDeg = square.errDeg;
+    // Misfit against the average of the other chips. Its white-noise part comes from second differences,
+    // which cancel slow changes, so ratio ~1 means the chips agree as well as their noise allows.
+    const e = ts.map(t => sub(matVec(Qm[i], centered[i][t]), mean3(live.filter(k => k !== i).map(k => matVec(Qm[k], centered[k][t])))));
+    const misfitUt = Math.sqrt(e.reduce((s, v) => s + dot(v, v), 0) / e.length);
+    let d2 = 0, nd = 0;
+    for (let t = 1; t + 1 < e.length; t++) {
+      if (idx[t + 1] - idx[t - 1] !== 2) continue;   // only across consecutive samples
+      const v = add(sub(e[t + 1], scale(e[t], 2)), e[t - 1]);
+      d2 += dot(v, v); nd++;
+    }
+    const noiseUt = Math.sqrt(d2 / (nd || 1) / 6);
+    const ratio = misfitUt / (noiseUt || 1);
+    // How far the measured tilt can be trusted, the larger of: how much it changes between the first and second
+    // half of the tumble, and the disagreement beyond noise seen as an angle. A field a few uT different at one
+    // chip (gradient near a computer or desk) looks like a tilt that depends on how the board was turned.
+    const excessUt = Math.sqrt(Math.max(0, misfitUt * misfitUt - noiseUt * noiseUt));
+    const uncDeg = Math.max(0.5, rotationAngle(matMul(transpose(Qa[i]), Qb[i])) / 2,
+      2 * Math.atan(excessUt / (sph[i].radius || 1)) * 180 / Math.PI);
+    const reliable = ratio <= 2.5 && uncDeg <= 2;
+    const measured = reliable && tiltDeg >= Math.max(2, 3 * uncDeg);
     return {
-      live: true, C, Q, residUt,
-      snapErrDeg: snapRotation(Q).errDeg,
-      text: describeRotation(matMul(matMul(axisMap, Q), transpose(axisMap))),
-      offset: sph && sph.center, earthUt: sph && sph.radius, sphereRms: sph && sph.rms,
+      live: true, C: matMul(axisMap, measured ? Qm[i] : square.R), Cmeasured: matMul(axisMap, Qm[i]),
+      measured, reliable, tiltDeg, uncDeg, misfitUt, noiseUt, ratio,
+      text: describeRotation(matMul(matMul(axisMap, square.R), transpose(axisMap))),
+      offset: sph[i] && sph[i].center, earthUt: sph[i] && sph[i].radius, sphereRms: sph[i] && sph[i].rms,
     };
   });
+
+  const warnings = [];
+  if (dropped > 0.05 * all.length)
+    warnings.push(`Left out ${(100 * dropped / all.length).toFixed(0)}% of the samples, where something besides the Earth's field reached a chip (a magnet, phone, tool or computer close by?).`);
+  const worst = Math.max(...live.map(i => sensors[i].ratio));
+  if (worst > 2.5)
+    warnings.push(`Chips disagree up to ${worst.toFixed(1)}× more than their noise: the field isn't even across the board (computer, desk or phone nearby?) or chips shift on their mounts.`);
+  const unsure = live.filter(i => !sensors[i].reliable);
+  if (unsure.length) {
+    const u = unsure.map(i => sensors[i].uncDeg);
+    warnings.push(`Small tilts on ${unsure.map(i => 'ch' + i).join(', ')} can't be measured reliably here (±${Math.min(...u).toFixed(0)}–${Math.max(...u).toFixed(0)}°), so ${unsure.length > 1 ? 'those chips use' : 'it uses'} the nearest square orientation. A tumble about 1 m from computers, phones and metal furniture may measure them.`);
+  }
+  if (spreadUt < 12)
+    warnings.push(`The board wasn't turned enough (spread ${spreadUt.toFixed(0)} µT); turn it every way, including upside-down.`);
 
   // Flat clockwise spin: in the board's frame the Earth's horizontal field turns the other way, i.e. its angle
   // atan2(x, z) increases. If it decreases, the axis map is mirrored (or the board was spun the other way).
   let spinCheck = null;
-  const spinRows = spin.filter(r => live.every(i => valid(r, i)));
+  const spinRows = spin.filter(r => live.every(i => valid(r, i)) &&
+    live.every((i, j) => Math.abs(norm(sub(vec(r, i), sph[i].center)) - sph[i].radius) <= lim[j]));
   if (spinRows.length >= 20) {
     const board = spinRows.map(r => mean3(live.map(i => matVec(sensors[i].C, sub(vec(r, i), sensors[i].offset || [0, 0, 0])))));
     let turned = 0;
@@ -298,7 +370,7 @@ function calibrateTumble(tumble, spin, axisMap, n = 5) {
       horizontalUt: board.reduce((t, v) => t + Math.hypot(v[0], v[2]), 0) / board.length,
     };
   }
-  return { sensors, C: sensors.map(s => s.C), ref, group: biggest, spreadUt, samples: rows.length, spin: spinCheck };
+  return { sensors, C: sensors.map(s => s.C), ref, group: biggest, spreadUt, samples: rows.length, total: all.length, dropped, warnings, spin: spinCheck };
 }
 
 // --- recordings ---
@@ -328,7 +400,7 @@ function parseSample(line) {
 
 const MagMath = {
   add, sub, scale, dot, norm, normalize, matVec, matMul, transpose, det3, mean3, angleDeg, solve, eigSym,
-  fitRotation, rotationAngle, axisAngle, snapRotation, describeRotation, RIGHT_ANGLE_ROTATIONS,
+  median, fitRotation, nearestRotation, rotationAngle, axisAngle, snapRotation, describeRotation, RIGHT_ANGLE_ROTATIONS,
   fitSphere, dipoleMatrix, dipoleField, fitDipole, dipoleSeeds, calibrateTumble, parseLog, parseSample,
 };
 if (typeof module === 'object' && module.exports) module.exports = MagMath;

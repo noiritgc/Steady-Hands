@@ -519,11 +519,14 @@ function calRender(msg) {
     h += `<p class="warn">Couldn't calibrate: ${calResult.error}.</p><div class="buttons">${btn('begin', 'Try again')}${btn('close', 'Close')}</div>`;
   } else if (calResult) {
     const r = calResult;
-    h += `<p>${r.samples} samples. Each chip compared with the others (the largest group that agrees, ${r.group.map(i => 'ch' + i).join(', ')}, is taken as correct).</p><table>
-      <tr><th>chip</th><th>orientation</th><th>misfit</th><th>|B| Earth</th></tr>` +
-      r.sensors.map((s, i) => `<tr><td>ch${i}</td><td${s.live && s.text !== 'matches the others' ? ' class="warn"' : ''}>${s.text}${s.live && s.snapErrDeg > 5 ? ` (${s.snapErrDeg.toFixed(0)}° off square)` : ''}</td>
-        <td>${s.live ? s.residUt.toFixed(1) + ' µT' : ''}</td><td>${s.live && s.earthUt ? s.earthUt.toFixed(0) + ' µT' : ''}</td></tr>`).join('') + '</table>';
-    if (r.spreadUt < 12) h += `<p class="warn">The board wasn't turned enough (spread ${r.spreadUt.toFixed(0)} µT); results may be unreliable. Try again turning it every way.</p>`;
+    const tilt = s => s.measured ? `${s.tiltDeg.toFixed(0)}° ± ${s.uncDeg.toFixed(0)}°, applied`
+      : s.reliable ? `${s.tiltDeg.toFixed(1)}°, too small to matter` : `${s.tiltDeg.toFixed(0)}° ± ${s.uncDeg.toFixed(0)}°, not reliable`;
+    h += `<p>${r.samples} of ${r.total} samples used. Each chip compared with the others (the largest group that agrees, ${r.group.map(i => 'ch' + i).join(', ')}, is taken as correct).</p><table>
+      <tr><th>chip</th><th>orientation</th><th>small tilt</th><th>agreement</th></tr>` +
+      r.sensors.map((s, i) => !s.live ? `<tr><td>ch${i}</td><td colspan="3">${s.text}</td></tr>` :
+        `<tr><td>ch${i}</td><td${s.text !== 'matches the others' ? ' class="warn"' : ''}>${s.text}</td>
+        <td${s.reliable ? '' : ' class="warn"'}>${tilt(s)}</td><td${s.ratio > 2.5 ? ' class="warn"' : ''} title="disagreement with the other chips, in multiples of the noise (1 = perfect)">${s.ratio.toFixed(1)}× noise</td></tr>`).join('') + '</table>';
+    for (const w of r.warnings) h += `<p class="warn">${w}</p>`;
     if (!r.spin) h += '<p class="warn">No flat-spin data, so left/right mirroring wasn\'t checked.</p>';
     else if (Math.abs(r.spin.turnedDeg) < 180) h += `<p class="warn">Flat spin only turned ${Math.abs(r.spin.turnedDeg).toFixed(0)}°; mirroring not checked.</p>`;
     else if (r.spin.turnedDeg > 0) h += `<p>Flat spin: ✓ axes are not mirrored. Vertical field ${r.spin.verticalUt.toFixed(0)} µT (${r.spin.verticalUt < 0 ? 'down, as in the northern hemisphere' : 'up, as in the southern hemisphere'}).</p>`;

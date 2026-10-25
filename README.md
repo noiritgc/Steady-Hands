@@ -29,7 +29,9 @@ The viewer assumes every chip is mounted the same way. If a breakout is turned o
 3. Click **Next: flat spin**, lay the board flat with the chips up and turn it slowly clockwise (seen from above) one full turn. Click **Finish**.
 4. Check the table (for example "ch3 turned 180° (seen from above)") and click **Apply**, then put the board down and **Zero**.
 
-This works because the Earth's field is the same at every chip, so after removing each chip's offset they should all agree. The flat spin checks the axes aren't mirrored. The calibration is saved in the browser; **Copy** gives JSON you can paste as `SENSOR_CAL` in `viewer.html` to make it the default everywhere.
+This works because the Earth's field is the same at every chip, so after removing each chip's offset they should all agree. The flat spin checks the axes aren't mirrored.
+
+Do it about 1 m from computers, phones and metal furniture, on a long USB cable. Samples where something besides the Earth's field reaches a chip are left out. A chip turned 90° or 180° is always caught, but small tilts are only applied when they're clearly measurable: a field a few µT different at one chip looks like a tilt, so otherwise each chip gets its nearest square orientation. The **agreement** column shows how well each chip matches the others in multiples of its noise (about 1 is perfect). The calibration is saved in the browser; **Copy** gives JSON you can paste as `SENSOR_CAL` in `viewer.html` to make it the default everywhere.
 
 ## Recording and analysing
 
