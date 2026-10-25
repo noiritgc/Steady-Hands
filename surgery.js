@@ -951,7 +951,9 @@ window.MagTrackOR = {
   group: procGroup, scene: scene3, skinMat,
   get tip() { return tip; }, get dir() { return dir; }, get cut() { return cut; }, history: loadHistory,
   get raw() { return rawFit; }, get instrument() { return instrument; }, setInstrument, STACK_LEN,
-  card, menu, setup() { mode = 'setup'; hud(false); clearProc(); }, get mode() { return mode; }, get pt() { return pt; }, get sample() { return sample; },
+  card, menu, setup() { mode = 'setup'; hud(false); clearProc(); }, get mode() { return mode; },
+  get current() { return cur; },   // the running procedure (tests drive its steps)
+  get pt() { return pt; }, get sample() { return sample; },
   setObjective(text) { $('or-obj').textContent = text; },
   registerTool(name, meshes) { toolModels[name] = meshes; },
   onFrame(fn) { frameHooks.push(fn); },

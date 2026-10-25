@@ -14,7 +14,10 @@ Surgical skill is hand skill, and hand skill takes repetition with feedback. Hos
 ## What it does
 
 - **Tracks an instrument in 3D with magnets.** A small magnet stack, bare or mounted on a plastic instrument, is tracked in position and direction (5 degrees of freedom) above a board of five 3-axis magnetometers. There's no camera and no line of sight, so your hands can't block it.
-- **A surgery game built on that tracking.** Training drills (incision, tumour removal, biopsy) and multi-step operations (appendectomy, heart transplant) with instrument changes, a patient whose vitals react to mistakes, blood loss and a patient cam.
+- **A surgery game built on that tracking.**
+  - Training drills: incision, tumour removal, biopsy.
+  - Seven multi-step operations that follow the real steps of common surgeries: appendectomy, heart transplant, keyhole gallbladder removal, caesarean section, hip replacement, kidney transplant, and a trauma splenectomy where the patient bleeds until you clamp.
+  - 13 instruments, danger structures (bile duct, sciatic nerve, iliac artery, pancreas…), a patient whose vitals react to mistakes, blood loss and a patient cam.
 - **Judges what you actually cut.** Cuts are judged where the blade meets the tissue, not at the hidden tip. On our own recorded play, people held the instrument about 46° from vertical, which puts the tip roughly 5 mm away from where the blade enters.
 - **Scores motion like skills research does.** Path length, number of movements, idle (hesitation) time and SPARC smoothness for every procedure, tracked across attempts, so you can see whether you're improving.
 - **🩺 AI attending (Claude).** After each case, Claude reads the measured numbers and your history and gives a debrief: what went well, the one thing to fix (tied to a number) and the drill to do next.

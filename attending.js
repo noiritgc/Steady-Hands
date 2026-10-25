@@ -18,6 +18,11 @@ const TEACHES = {
   biopsy: 'inserting at a set angle and holding still (angle control, tremor)',
   appendectomy: 'a full 6-step operation (sequencing several instruments)',
   heart: 'a full 9-step operation (sawing rhythm, retraction, steady holds, pumping rhythm)',
+  gallbladder: 'a 9-step keyhole operation (port placement, fine dissection near the common bile duct, clip placement)',
+  csection: 'a 10-step caesarean (depth control over the baby, delivery, cord clamps, layered closure)',
+  hip: 'a 10-step hip replacement (sawing, circular reaming at a set depth, hammer rhythm, avoiding the sciatic nerve)',
+  kidney: 'a 9-step kidney transplant (vessel clamps, fine anastomosis stitches, steady holds)',
+  spleen: 'a 10-step trauma splenectomy under time pressure (suction, packing, clamping while the patient bleeds)',
 };
 const SYSTEM = `You are the attending surgeon in MagTrack OR, a cartoon surgical-skills training game. The trainee holds a small magnet stack like an instrument; a sensor board tracks it in 3D, so the game measures their real hand: path accuracy, depth control, tool angle, steadiness (tremor) and timing. Lowering the tip below the virtual tissue surface cuts or touches; the patient's vitals react to mistakes.
 

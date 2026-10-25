@@ -41,7 +41,16 @@ Mouse clicks work too. Key presses and game hits are logged in recordings.
 
 ## Surgery game and AI attending
 
-Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour removal, biopsy) teach the controls with an x-ray view, then **Operations** (appendectomy, heart transplant) are multi-step cartoon surgeries where the instrument changes each step: scalpel, bone saw, retractor, clamp, forceps, hands, needle.
+Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour removal, biopsy) teach the controls with an x-ray view, then **Operations** are multi-step cartoon versions of real, commonly performed surgeries, following each one's actual sequence of steps. The instrument changes each step (scalpel, bone saw, retractor, clamp, forceps, hands, needle, trocar, clip applier, dissector, suction, reamer, mallet):
+- **Appendectomy** (6 steps)
+- **Heart transplant** (9): sternotomy, bypass, implant and restart
+- **Gallbladder removal (keyhole)** (9): navel port, trocars, gas in (the skin turns see-through for the camera view), lift the gallbladder, clear Calot's triangle, clip and divide the cystic duct and artery, peel it off the liver, bag it out, close the ports. Touching the common bile duct is an injury.
+- **Caesarean section** (10): bikini-line incision, split the muscles, move the bladder down, open the uterus without nicking the baby, deliver the baby (it cries), clamp and cut the cord, deliver the placenta, close the uterus, then the skin.
+- **Hip replacement** (10): incision, retract the muscles (the sciatic nerve runs alongside), dislocate the hip, saw the femoral neck, remove the worn ball, ream the socket in circles at a set depth, hammer in the cup, fit the new ball, put the hip back in, close.
+- **Kidney transplant** (9): hockey-stick incision, clamp the iliac vessels, bring the donor kidney off ice, sew the vein then the artery, release the clamps (the kidney pinks up), join the ureter to the bladder, close.
+- **Emergency splenectomy** (10), a trauma case: the patient arrives in shock and keeps bleeding until you clamp. Midline incision, suction the blood, pack all four quadrants, lift the soaked pack, free the ruptured spleen, clamp its vessels, cut it free, remove it, final check for bleeding, close.
+
+Operations can mark nearby structures as dangerous: the bile duct, bladder, sciatic nerve, iliac artery, stomach and pancreas. Riley warns as you get close, touching one injures the patient, and the result card lists every structure injured.
 
 Cuts, saw strokes and stitches are judged where the instrument's axis meets the tissue, not at the hidden tip, so tilting the instrument (most people hold it about 45° over) doesn't pull the cut off the line. A ring on the skin shows that point: white above the skin, green in the cutting band, yellow too shallow, red too deep. Tracking is smoothed with a One Euro filter (steady when you hold still, quick when you move), short dropouts and single bad fits are ignored, and the instrument is drawn smoothly between the ~19 samples a second.
 
