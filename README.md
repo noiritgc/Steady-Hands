@@ -26,6 +26,78 @@ What you see:
 
 On Linux you may need serial-port permission: `sudo usermod -aG dialout $USER`, then log out and back in.
 
+## Controller mode
+
+Click **Controller** to use the magnet as an input device, e.g. a small magnet on a ring or fingertip:
+
+- **Point:** move the magnet over the board, about 1–4 cm above it, and the cursor follows. Choose how the board lies in front of you; with the top of the card to your left, the keyboard's long side runs along the card.
+- **Click:** flip the magnet over (north end up ↔ down). The click lands where the magnet was before the flip. Or tick **Dwell click** and hold still on a key for about a second.
+- **Keyboard:** type on the on-screen keyboard. **Speak** reads the text aloud with the browser's built-in voice.
+- **Target game:** pop as many targets as you can in 45 seconds.
+
+Mouse clicks work too. Key presses and game hits are logged in recordings.
+
+**Auto-zero** (on by default) keeps the background up to date. When no magnet is found and every chip's reading is small and steady for about 1.5 s, it folds the change into the zero. That covers the board being nudged, a chip's zero shifting after a strong field, or a magnet parked well away. A big leftover (over 100 µT) still needs **Zero** with magnets moved away.
+
+## Surgery game and AI attending
+
+Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour removal, biopsy) teach the controls with an x-ray view, then **Operations** are multi-step cartoon versions of real, commonly performed surgeries, following each one's actual sequence of steps. The instrument changes each step (scalpel, bone saw, retractor, clamp, forceps, hands, needle, trocar, clip applier, dissector, suction, reamer, mallet):
+- **Appendectomy** (6 steps)
+- **Heart transplant** (9): sternotomy, bypass, implant and restart
+- **Gallbladder removal (keyhole)** (9): navel port, trocars, gas in (the skin turns see-through for the camera view), lift the gallbladder, clear Calot's triangle, clip and divide the cystic duct and artery, peel it off the liver, bag it out, close the ports. Touching the common bile duct is an injury.
+- **Caesarean section** (10): bikini-line incision, split the muscles, move the bladder down, open the uterus without nicking the baby, deliver the baby (it cries), clamp and cut the cord, deliver the placenta, close the uterus, then the skin.
+- **Hip replacement** (10): incision, retract the muscles (the sciatic nerve runs alongside), dislocate the hip, saw the femoral neck, remove the worn ball, ream the socket in circles at a set depth, hammer in the cup, fit the new ball, put the hip back in, close.
+- **Kidney transplant** (9): hockey-stick incision, clamp the iliac vessels, bring the donor kidney off ice, sew the vein then the artery, release the clamps (the kidney pinks up), join the ureter to the bladder, close.
+- **Emergency splenectomy** (10), a trauma case: the patient arrives in shock and keeps bleeding until you clamp. Midline incision, suction the blood, pack all four quadrants, lift the soaked pack, free the ruptured spleen, clamp its vessels, cut it free, remove it, final check for bleeding, close.
+
+Operations can mark nearby structures as dangerous: the bile duct, bladder, sciatic nerve, iliac artery, stomach and pancreas. Riley warns as you get close, touching one injures the patient, and the result card lists every structure injured.
+
+Cuts, saw strokes and stitches are judged where the instrument's axis meets the tissue, not at the hidden tip, so tilting the instrument (most people hold it about 45° over) doesn't pull the cut off the line. A ring on the skin shows that point: white above the skin, green in the cutting band, yellow too shallow, red too deep. Tracking is smoothed with a One Euro filter (steady when you hold still, quick when you move), short dropouts and single bad fits are ignored, and the instrument is drawn smoothly between the ~19 samples a second.
+
+**Motion analytics.** Every procedure also measures how the hand moved, using the hand-motion measures from surgical-skills research plus smoothness, all computed by `motion.js` from the tracked tip:
+- **Path length**: how far the tip travelled. Positions are lightly smoothed and only steps above the noise floor count, so jitter while holding still adds nothing.
+- **Movements**: separate movements, with hysteresis on speed (one starts above 2.5 cm/s and ends below 1.2 cm/s).
+- **Idle time**: hesitation, meaning still for at least 0.5 s while hovering above the tissue. Intentional holds in the tissue don't count.
+- **Smoothness**: SPARC, the spectral arc length of each movement's speed profile. It is chosen because measurement noise barely changes it, unlike jerk-based measures. Closer to 0 is smoother.
+
+The left gauge shows path, movements and idle time live. The result card shows all four next to your average of the last three completed runs of that procedure, with score and path-length trend lines. History is kept per procedure in this browser (`magtrack.or.history`). The numbers go to the AI attending, which is asked to coach on progress, and to Riley, who says your clearest improvement ("That's 23 percent less wasted motion than your average.") and nudges you after 5 s of hesitating.
+
+**Setup › 🎯 Tracking check** measures tracking accuracy against known physical positions:
+1. Print `validation-grid.html` at 100% and check its 5 cm bar with a ruler.
+2. Lay it over the chips and stand the magnet on a non-metal spacer of known height on each of the 9 crosses.
+3. Each point records automatically after 1.5 s steady, or press Space to record now.
+
+The report keeps **measured** results (mean/median/RMS/worst error, horizontal vs vertical, systematic offset, jitter, the tested heights) apart from **what is not measured or only estimated**: untested heights and tilts, ±1 mm hand placement, and the model-fit residual, which is not an accuracy figure. Results download as JSON and are logged in recordings. `node tools/analyze.js <recording> --validate` re-fits every point from the raw sensor data, so the number can be reproduced independently of the game.
+
+**Setup › 🔧 Instrument** lets you use a physical, non-metallic instrument (plastic, wood or 3D-printed) with the magnet stack mounted on it, in line and near the tip. Set its magnet-to-tip offset with a ruler, or measure it by **pivot calibration**: keep the tip still on one point and rock the handle for 10 s, and a least-squares fit finds the point that stayed still. The game then uses that tip everywhere. Steel instruments distort the field, and the magnet must stay within about 5 cm of the board.
+
+**🩺 AI attending** (bottom left in the game): after each procedure, Claude (`claude-sonnet-5-5`) reads the game's measurements (points per step, mm off the line, tremor, angle error, blood loss, vessel hits) and your recent attempts, and returns a short debrief: what went well, the one thing to fix (tied to a measured number), and which drill to do next. The game keeps the score; Claude only explains it. It needs internet and an Anthropic API key, which you paste in the game: the key stays in that browser's localStorage and is sent only to Anthropic (the official SDK is loaded from jsdelivr, pinned). Don't enter a key on a shared computer, and don't host the page publicly with a key in it. Debriefs are logged in recordings (`or_debrief`) so you can measure progress.
+
+## Voice: Riley, the AI surgical assistant (Cartesia)
+
+During the surgery game, **Riley** talks you through each procedure in a Cartesia **Sonic** voice, reacting to your real instrument movements. Riley speaks with **Clive**, a composed, articulate British voice from the Cartesia library. He talks like a senior surgeon at your shoulder rather than reading the screen: he hands you each instrument with the instruction and the reason ("Here's the saw. Long, even strokes down the breastbone, and don't go deep, the heart is right under there."), and calls out what he sees: getting close to a target, too deep, too close to the artery, shaking, moving too fast, blood pressure falling, blood loss, the last 30 seconds and a countdown. When you hit the artery: "Bleeder! You've hit the artery!"
+
+**Setup** (the key stays on your machine, never in the browser or the repo):
+
+```
+cp .env.example .env          # then put your key in .env: CARTESIA_API_KEY=sk_car_...
+node server.js                # or: CARTESIA_API_KEY=sk_car_... node server.js
+```
+
+Open http://localhost:8765/viewer.html. `server.js` (Node 18+, no dependencies) serves the viewer and proxies speech to Cartesia; it listens on this machine only (127.0.0.1 and ::1) and won't serve dotfiles such as `.env`. Optional settings: `CARTESIA_VOICE_ID` (default: Clive, `b24f41fd-00a3-4cd8-992a-a0c9f13f3ef1`), `CARTESIA_MODEL` (default `sonic-3.6`).
+
+**How it works:**
+- The game emits events (step start, too deep, artery hit, …) and `voice.js` also watches live state each tracking sample: distance to the target, hand speed inside the patient, tremor while holding, blood pressure, blood loss, and the clock.
+- A director picks what to say: four priority levels (critical, warning, guidance, chatter). More urgent lines interrupt less urgent ones; otherwise only the most important waiting line is kept, and stale ones are dropped. Each event has a cooldown, and repeating a mistake escalates the wording, speed and emotion.
+- Cartesia features used: the Sonic TTS bytes API (`/tts/bytes`) with `sonic-3.6`, per-line `generation_config` speed and emotion (calm, then determined, then scared as things get worse; excited when the heart restarts), and the voices API to look up the voice. Audio streams as MP3 and starts playing on the first bytes. `server.js` caches recent lines and prefetches likely ones per step, so frequent callouts are instant and don't spend credits again.
+- Speech never blocks tracking: requests and playback are asynchronous. Every line also appears as a caption, so it works with the sound off and for players who are deaf or hard of hearing. The 🔊 button mutes Riley.
+
+**Known limitations:**
+- It needs internet. Without `server.js`, or without a key, Riley falls back to the browser's built-in voice, and the button says so.
+- The first time a line is said there is a short delay while Cartesia generates it; prefetching hides most of this.
+- Lines are scripted, with numbers filled in from the game. The free-form debrief comes from the AI attending (Claude), which is not spoken.
+- It's a training game, not medical advice. Spoken text is game-generated and contains no personal data.
+
 ## Calibrating chip orientation
 
 The viewer assumes every chip is mounted the same way. If a breakout is turned or flipped, its arrow points the wrong way. To measure how each chip is really mounted:
@@ -106,7 +178,16 @@ Values are in microtesla, ordered by multiplexer channel; `nan` means that senso
 ## Files
 
 - `viewer.html`: the 3D viewer (Web Serial + three.js), recording, replay and orientation calibration
+- `controller.js`: controller mode (cursor, flip-to-click, keyboard, target game)
+- `surgery.js`, `operations.js`: the surgery game (training drills, multi-step operations)
+- `voice.js`: Riley, the spoken surgical assistant (Cartesia Sonic)
+- `server.js`: local server, serves the viewer and proxies Cartesia TTS with the key from the environment
+- `attending.js`: the AI attending debrief (Claude via the Anthropic SDK)
 - `magmath.js`: magnet fit, orientation calibration and recording parser, shared by the viewer and `tools/analyze.js`
-- `tools/analyze.js`: command-line report for a recording
+- `motion.js`: motion analytics (path length, movements, idle, SPARC), validation statistics and pivot calibration, shared by the game, tools and tests
+- `bench.js`: the game's Setup tools (tracking check, instrument offset and pivot calibration)
+- `validation-grid.html`: printable 1:1 grid of known points for the tracking check
+- `tests/`: `node --test tests/*.test.js` (motion analytics, pivot calibration, and the end-to-end validation re-fit on a synthetic recording)
+- `tools/analyze.js`: command-line report for a recording (`--validate` re-fits tracking-check points)
 - `firmware/code.py`: CircuitPython firmware
 - `vendor/`: three.js r128 and OrbitControls, bundled so the viewer works offline

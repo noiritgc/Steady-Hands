@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MagTrack Validation Grid</title>
+<style>
+  /* Printed 1:1 in real centimetres. Board axes: x to the right, z toward the bottom of the card (your side);
+     the origin is the centre chip (ch2). The crosses are the known points of the game's Setup > Tracking check. */
+  :root { --ink: #1d1b2e; --muted: #6b6585; --accent: #d9480f; --bg: #ffffff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink: #ece9f7; --muted: #a7a1c2; --accent: #ff8a3d; --bg: #16141f; } }
+  :root[data-theme="dark"] { --ink: #ece9f7; --muted: #a7a1c2; --accent: #ff8a3d; --bg: #16141f; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; }
+  .notes { max-width: 640px; margin: 0 auto 12px; }
+  .notes h1 { font-size: 20px; margin: 0 0 6px; }
+  .notes li { margin: 2px 0; }
+  .sheet { position: relative; width: 9cm; height: 12cm; margin: 0 auto; border: 1px dashed var(--muted); }
+  .o { position: absolute; left: 4.5cm; top: 6cm; width: 0; height: 0; }   /* board origin (ch2) */
+  .chip { position: absolute; width: 0.3cm; height: 0.3cm; margin: -0.15cm 0 0 -0.15cm; border: 1.5px solid var(--ink); }
+  .chip span { position: absolute; left: 0.4cm; top: -0.05cm; font-size: 8pt; color: var(--muted); white-space: nowrap; }
+  .x { position: absolute; width: 0.8cm; height: 0.8cm; margin: -0.4cm 0 0 -0.4cm; }
+  .x::before, .x::after { content: ""; position: absolute; background: var(--accent); }
+  .x::before { left: 0; top: calc(0.4cm - 0.5px); width: 0.8cm; height: 1px; }
+  .x::after { top: 0; left: calc(0.4cm - 0.5px); height: 0.8cm; width: 1px; }
+  .x b { position: absolute; left: -0.35cm; top: -0.35cm; font-size: 9pt; }
+  .scale { position: absolute; left: 2cm; bottom: 0.5cm; width: 5cm; border-top: 2px solid var(--ink); text-align: center; font-size: 8pt; padding-top: 2px; }
+  .edge { position: absolute; left: 0; right: 0; bottom: 1.3cm; text-align: center; font-size: 8pt; color: var(--muted); }
+  .top { position: absolute; left: 0; right: 0; top: 0.2cm; text-align: center; font-size: 8pt; color: var(--muted); }
+  button { font: inherit; padding: 6px 14px; margin-top: 6px; cursor: pointer; }
+  @media print { .notes { display: none; } body { padding: 0; background: #fff; color: #000; } .sheet { margin: 1cm auto; } }
+  @media (max-width: 400px) { .sheet { transform: scale(0.85); transform-origin: top center; } }
+</style>
+</head>
+<body>
+<div class="notes">
+  <h1>MagTrack tracking-check grid</h1>
+  <ol>
+    <li>Print at <b>100% / actual size</b> (no "fit to page"). Check the 5 cm bar with a ruler; if it's off, the measurement is off.</li>
+    <li>Lay the sheet on the board so the five small squares sit over the five chips (ch2 in the middle), with "card bottom" on your side. Tape it down.</li>
+    <li>In the viewer: Surgery game → Setup → Tracking check. Put a non-metal spacer of known height on each cross and stand the magnet on it.</li>
+  </ol>
+  <button onclick="print()">Print</button>
+</div>
+<div class="sheet">
+  <div class="top">card top (far side)</div>
+  <div class="o" id="o"></div>
+  <div class="edge">card bottom (your side) · x → right · origin = ch2</div>
+  <div class="scale">5 cm</div>
+</div>
+<script>
+// same layout as bench.js (GRID) and viewer.html (SENSOR_POS)
+const CHIPS = [[-1.7, -3.4], [1.7, -3.4], [0, 0], [-1.7, 3.4], [1.7, 3.4]];
+const GRID = [[-2, -3], [0, -3], [2, -3], [-2, 0], [0, 0], [2, 0], [-2, 3], [0, 3], [2, 3]];
+const o = document.getElementById('o');
+CHIPS.forEach(([x, z], i) => o.insertAdjacentHTML('beforeend', `<div class="chip" style="left:${x}cm;top:${z}cm"><span>ch${i}</span></div>`));
+GRID.forEach(([x, z], i) => o.insertAdjacentHTML('beforeend', `<div class="x" style="left:${x}cm;top:${z}cm"><b>${i + 1}</b></div>`));
+</script>
+</body>
+</html>
