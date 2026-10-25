@@ -47,7 +47,7 @@ Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour re
 
 ## Voice: Riley, the AI surgical assistant (Cartesia)
 
-During the surgery game, **Riley** talks you through each procedure in a Cartesia **Sonic** voice, reacting to your real instrument movements. Riley speaks with **Clive**, a composed, articulate British voice from the Cartesia library. He hands you each instrument ("Bone saw."), gives the step, and calls out what he sees: getting close to a target, too deep, too close to the artery, shaking, moving too fast, blood pressure falling, blood loss, the last 30 seconds and a countdown. When you hit the artery: "Bleeder! You hit the artery!"
+During the surgery game, **Riley** talks you through each procedure in a Cartesia **Sonic** voice, reacting to your real instrument movements. Riley speaks with **Clive**, a composed, articulate British voice from the Cartesia library. He talks like a senior surgeon at your shoulder rather than reading the screen: he hands you each instrument with the instruction and the reason ("Here's the saw. Long, even strokes down the breastbone, and don't go deep, the heart is right under there."), and calls out what he sees: getting close to a target, too deep, too close to the artery, shaking, moving too fast, blood pressure falling, blood loss, the last 30 seconds and a countdown. When you hit the artery: "Bleeder! You've hit the artery!"
 
 **Setup** (the key stays on your machine, never in the browser or the repo):
 
