@@ -18,6 +18,7 @@ const DEFAULT_POS = [[-1.7, -3.4], [1.7, -3.4], [0, 0], [-1.7, 3.4], [1.7, 3.4]]
 const DEFAULT_AXIS_MAP = [[0, -1, 0], [0, 0, 1], [-1, 0, 0]];   // keep in sync with AXIS_MAP in viewer.html
 const ORIGINAL_AXIS_MAP = [[1, 0, 0], [0, 0, 1], [0, -1, 0]];  // used by recordings made before 2026-10-24 evening
 const MIN_THRESH_UT = 50, NOISE_MULT = 5, ZERO_SAMPLES = 25, FIT_MIN_UT = 10;
+const ZERO_NOISE_MAX_UT = 6;   // same as viewer.html
 
 const args = process.argv.slice(2);
 const opt = name => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : undefined; };
@@ -68,8 +69,16 @@ for (const [text, m] of Object.entries(msgs)) out(`${sec(m.t).padStart(8)}  ${m.
 head('events and marks');
 for (const e of entries) {
   if (e.kind === 'mark') out(`${sec(e.t).padStart(8)}  MARK  ${e.text}`);
+  else if (e.kind === 'app' && e.data.event === 'warning') out(`${sec(e.t).padStart(8)}  viewer warning: ${e.data.text}`);
   else if (e.kind === 'app' && !['start', 'zero_done'].includes(e.data.event)) out(`${sec(e.t).padStart(8)}  ${e.data.event}`);
-  else if (e.kind === 'app' && e.data.event === 'zero_done') out(`${sec(e.t).padStart(8)}  zero_done  thresholds ${(e.data.thresholds || []).map(x => (+x).toFixed(0)).join('/')} uT`);
+  else if (e.kind === 'app' && e.data.event === 'zero_done') {
+    const thr = e.data.thresholds || [];
+    out(`${sec(e.t).padStart(8)}  zero_done  thresholds ${thr.map(x => (+x).toFixed(0)).join('/')} uT`);
+    // noise while zeroing is normally ~2 uT; more means a magnet moved nearby (older recordings: from thresholds)
+    const zn = e.data.noise || thr.map(x => x > MIN_THRESH_UT ? x / NOISE_MULT : null);
+    const bad = zn.map((n, i) => n > ZERO_NOISE_MAX_UT ? i : -1).filter(i => i >= 0);
+    if (bad.length) out(`          !! zeroing was disturbed on ${bad.map(i => 'ch' + i).join(', ')} (noise ${bad.map(i => zn[i].toFixed(0)).join(', ')} uT): a magnet moved nearby, so the background is off`);
+  }
 }
 
 // --- per-chip quality ---

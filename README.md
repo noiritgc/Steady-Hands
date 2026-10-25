@@ -17,6 +17,12 @@ What you see:
 - **Bar magnet** (red = north end): the one magnet that best explains every chip above threshold. It needs 3 chips above threshold and is hidden when no single magnet fits.
 - **Faint white arrows**: the field that fitted magnet should make at each chip. The readout lists how many degrees each chip's arrow is off from it; a chip that is consistently far off is mounted, wired or placed differently from what the viewer assumes.
 - **Orange chip**: its reading hit the end of its range (magnet too close), so it's ignored for a moment.
+- **Orange warnings** under the buttons mean the zero (background) is probably off:
+  - zeroing was disturbed (a magnet moved nearby while it was taken)
+  - a chip saw a very strong field (over 5 mT) up close, which can shift its zero by about 20 µT
+  - chips read a steady field that no magnet explains (a magnet parked nearby)
+
+  In each case, move magnets at least 50 cm away and click **Zero**. A strong stack needs to be well away from the board while zeroing.
 
 On Linux you may need serial-port permission: `sudo usermod -aG dialout $USER`, then log out and back in.
 

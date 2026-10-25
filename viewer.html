@@ -19,6 +19,7 @@
   #status, #info { color: var(--muted); }
   #boardmsg { color: var(--muted); font: 12px ui-monospace, monospace; }
   #info.rec { color: #ff9a9a; }
+  #warn { color: var(--warn); white-space: pre-line; }
   #readout { position: absolute; bottom: 12px; left: 12px; font: 12px ui-monospace, monospace; color: var(--muted); white-space: pre; pointer-events: none; }
   #cal { position: absolute; top: 12px; right: 12px; width: 400px; max-width: calc(100% - 24px); box-sizing: border-box; background: var(--panel); border: 1px solid #333844; border-radius: 8px; padding: 14px 16px; display: none; line-height: 1.45; }
   #cal h3 { margin: 0 0 8px; font-size: 15px; }
@@ -46,6 +47,7 @@
   <div class="row"><span id="status">Chrome/Edge required &middot; not connected</span></div>
   <div class="row"><span id="info"></span></div>
   <div class="row"><span id="boardmsg"></span></div>
+  <div class="row"><span id="warn"></span></div>
 </div>
 <div id="cal"></div>
 <div id="readout"></div>
@@ -75,6 +77,9 @@ const SMOOTH = 0.35;       // 0..1, lower = smoother but laggier
 const ZERO_SAMPLES = 25;   // samples averaged when zeroing (~1.5 s)
 const RAIL_UT = [24608, 24608, 39648];  // +-32767 counts x 0.751 / 0.751 / 1.210 uT: the end of each axis's range
 const BAD_SAMPLES = 10;    // ignore a chip for this many samples after it clips
+const ZERO_NOISE_MAX_UT = 6;   // noisier than this while zeroing (normally ~2) = a magnet moved nearby
+const STRONG_UT = 5000;    // after a field this strong a chip's zero can shift by ~20 uT
+const LEFTOVER_UT = 15, LEFTOVER_SAMPLES = 100;  // ~5 s of steady field above this on 2+ chips, no magnet found = stale zero
 const FIT_MIN_UT = 10;     // chips above this (or NOISE_MULT x noise) help fit the magnet, even below the arrow threshold
 const MIN_FIT_SENSORS = 3; // chips with a clear signal needed before fitting a magnet
 const FIT_MAX_ERR = 0.35;  // hide the magnet when the model misses the readings by more than this (relative)
@@ -118,7 +123,7 @@ const sensors = SENSOR_POS.map(([x, z], i) => {
   const model = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), chip.position, 1, 0xffffff, 0.3, 0.16);
   for (const m of [model.line.material, model.cone.material]) { m.transparent = true; m.opacity = 0.3; }
   model.visible = false; scene.add(model);
-  return { chip, arrow, model, pos: [x, 0.05, z], on: false, thresh: 40, noise: NaN, fitThresh: FIT_MIN_UT, last: null, badFor: 0 };
+  return { chip, arrow, model, pos: [x, 0.05, z], on: false, thresh: 40, noise: NaN, fitThresh: FIT_MIN_UT, last: null, badFor: 0, maxSeen: 0, prevField: null };
 });
 
 // Fitted magnet, drawn as a bar magnet: red half = north end.
@@ -156,6 +161,25 @@ let smoothed = null, baseline = null, zeroBuf = null, fit = null;
 const $ = id => document.getElementById(id);
 const statusEl = () => $('status');
 
+// --- warnings about the zero (background) going stale ---
+const warnings = { zero: null, strong: null, leftover: null };
+let leftoverCount = 0;
+function setWarning(kind, text) {
+  if (warnings[kind] === text) return;
+  if (text && !warnings[kind]) log('app', { event: 'warning', kind, text });
+  warnings[kind] = text;
+  $('warn').textContent = Object.values(warnings).filter(Boolean).map(w => '⚠ ' + w).join('\n');
+}
+const chipList = is => is.map(i => 'ch' + i).join(', ');
+
+// A noisy zero means something moved nearby while it was taken; that field is now baked into the background.
+function checkZero() {
+  const bad = sensors.map((_, i) => i).filter(i => sensors[i].noise > ZERO_NOISE_MAX_UT);
+  setWarning('zero', bad.length ? `Zeroing was disturbed on ${chipList(bad)} (noise ${bad.map(i => sensors[i].noise.toFixed(0)).join(', ')} µT, normally about 2): a magnet moved nearby. Move magnets at least 50 cm away and click Zero again.` : null);
+  sensors.forEach(s => { s.maxSeen = 0; s.prevField = null; });
+  setWarning('strong', null); setWarning('leftover', null); leftoverCount = 0;
+}
+
 function startZero() { zeroBuf = []; statusEl().textContent = 'zeroing — keep magnets away…'; log('app', { event: 'zero_start' }); }
 
 // Average the collected samples into the baseline and set each sensor's threshold from its noise.
@@ -174,6 +198,7 @@ function finishZero() {
   });
   zeroBuf = null;
   smoothed = baseline.slice();
+  checkZero();
   statusEl().textContent = 'ready · thresholds ' + sensors.map(s => s.thresh.toFixed(0)).join('/') + ' µT';
   log('app', { event: 'zero_done', baseline, thresholds: sensors.map(s => s.thresh), noise: sensors.map(s => s.noise) });
 }
@@ -233,6 +258,22 @@ function update(raw) {
     if (next && next.rel > FIT_MAX_ERR) next = null;
   }
   fit = next;
+
+  // A chip that has seen a very strong field may now read a little off; remind once the magnet is away.
+  sensors.forEach((s, i) => { if (fields[i]) s.maxSeen = Math.max(s.maxSeen, M.norm(fields[i])); });
+  const strong = sensors.map((_, i) => i).filter(i => sensors[i].maxSeen > STRONG_UT);
+  if (strong.length && !fit)
+    setWarning('strong', `${chipList(strong)} saw ${strong.map(i => (sensors[i].maxSeen / 1000).toFixed(1)).join(', ')} mT up close; a field that strong can shift a chip's zero by ~20 µT. With magnets away, click Zero.`);
+  // Steady field on 2+ chips that no magnet explains: a magnet parked nearby, or the zero no longer matches.
+  const steady = sensors.map((_, i) => i).filter(i => {
+    const s = sensors[i], f = fields[i], still = f && s.prevField && M.norm(M.sub(f, s.prevField)) < 5;
+    s.prevField = f;
+    return still && M.norm(f) > LEFTOVER_UT;   // fixed: a disturbed zero inflates the noise-based thresholds
+  });
+  leftoverCount = !fit && steady.length >= 2 ? leftoverCount + 1 : 0;
+  if (leftoverCount >= LEFTOVER_SAMPLES)
+    setWarning('leftover', `${chipList(steady)} still read ${steady.map(i => M.norm(fields[i]).toFixed(0)).join(', ')} µT with no magnet found: a magnet is parked nearby or the background changed. Move magnets away and click Zero.`);
+  else if (!leftoverCount) setWarning('leftover', null);
   if (fit) {
     const p = new THREE.Vector3(...fit.pos), q = new THREE.Quaternion().setFromUnitVectors(upVec, new THREE.Vector3(...M.normalize(fit.m)));
     if (magnet.visible) { magnet.position.lerp(p, 0.35); magnet.quaternion.slerp(q, 0.35); }
@@ -442,8 +483,10 @@ function replayEntry(e) {
         s.thresh = (d.thresholds || [])[i] ?? MIN_THRESH_UT;
         const n = (d.noise || [])[i];   // older recordings only have thresholds
         s.fitThresh = n ? Math.max(FIT_MIN_UT, NOISE_MULT * n) : s.thresh > MIN_THRESH_UT ? s.thresh : FIT_MIN_UT;
+        s.noise = n ?? (s.thresh > MIN_THRESH_UT ? s.thresh / NOISE_MULT : NaN);
       });
       smoothed = baseline.slice();
+      checkZero();
       statusEl().textContent = 'ready · baseline from recording';
     }
     else if (d.event === 'calib_tumble_start') calBegin();
