@@ -108,6 +108,10 @@ function axisAngle(R) {
   return { angle, axis: normalize([R[2][1] - R[1][2], R[0][2] - R[2][0], R[1][0] - R[0][1]]) };
 }
 
+// Re-base per-chip sensor -> scene matrices made with one shared axis map onto another, keeping each chip's
+// own correction relative to that map.
+const remapAxes = (C, from, to) => C.map(Ci => matMul(to, matMul(transpose(from), Ci)));
+
 // The 24 ways to mount a chip square to the board (signed permutation matrices with det +1).
 const RIGHT_ANGLE_ROTATIONS = (() => {
   const out = [];
@@ -400,7 +404,7 @@ function parseSample(line) {
 
 const MagMath = {
   add, sub, scale, dot, norm, normalize, matVec, matMul, transpose, det3, mean3, angleDeg, solve, eigSym,
-  median, fitRotation, nearestRotation, rotationAngle, axisAngle, snapRotation, describeRotation, RIGHT_ANGLE_ROTATIONS,
+  median, fitRotation, nearestRotation, remapAxes, rotationAngle, axisAngle, snapRotation, describeRotation, RIGHT_ANGLE_ROTATIONS,
   fitSphere, dipoleMatrix, dipoleField, fitDipole, dipoleSeeds, calibrateTumble, parseLog, parseSample,
 };
 if (typeof module === 'object' && module.exports) module.exports = MagMath;

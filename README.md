@@ -77,6 +77,8 @@ ch3       ch4
 
 A different layout needs `SENSOR_POS` at the top of `viewer.html` changed to match.
 
+Each chip's axes, as measured with a magnet over each chip: **X points toward the top of the card** (from ch3/ch4 toward ch0/ch1), **Y toward the left**, **Z out of the chip**. Mounting the breakouts differently needs `AXIS_MAP` in `viewer.html` (and `DEFAULT_AXIS_MAP` in `tools/analyze.js`) changed to match. A magnet test checks it: record with the magnet held over each chip in turn, pressing **Mark** each time, then run `tools/analyze.js`. Every chip should agree with the fitted magnet to within about 10°.
+
 ## Flashing a new board
 
 1. Hold **BOOT** while plugging the board in. A drive called `RPI-RP2` appears.
