@@ -39,9 +39,9 @@ Mouse clicks work too. Key presses and game hits are logged in recordings.
 
 **Auto-zero** (on by default) keeps the background up to date. When no magnet is found and every chip's reading is small and steady for about 1.5 s, it folds the change into the zero. That covers the board being nudged, a chip's zero shifting after a strong field, or a magnet parked well away. A big leftover (over 100 µT) still needs **Zero** with magnets moved away.
 
-## Surgery game and AI attending
+## Steady Hands: the surgery game and AI attending
 
-Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour removal, biopsy) teach the controls with an x-ray view, then **Operations** are multi-step cartoon versions of real, commonly performed surgeries, following each one's actual sequence of steps. The instrument changes each step (scalpel, bone saw, retractor, clamp, forceps, hands, needle, trocar, clip applier, dissector, suction, reamer, mallet):
+Click **Steady Hands** to open the surgery game: **Training** drills (incision, tumour removal, biopsy) teach the controls with an x-ray view, then **Operations** are multi-step cartoon versions of real, commonly performed surgeries, following each one's actual sequence of steps. The instrument changes each step (scalpel, bone saw, retractor, clamp, forceps, hands, needle, trocar, clip applier, dissector, suction, reamer, mallet):
 - **Appendectomy** (6 steps)
 - **Heart transplant** (9): sternotomy, bypass, implant and restart
 - **Gallbladder removal (keyhole)** (9): navel port, trocars, gas in (the skin turns see-through for the camera view), lift the gallbladder, clear Calot's triangle, clip and divide the cystic duct and artery, peel it off the liver, bag it out, close the ports. Touching the common bile duct is an injury.
@@ -75,7 +75,7 @@ The report keeps **measured** results (mean/median/RMS/worst error, horizontal v
 
 ## Voice: Riley, the AI surgical assistant (Cartesia)
 
-During the surgery game, **Riley** talks you through each procedure in a Cartesia **Sonic** voice, reacting to your real instrument movements. Riley speaks with **Clive**, a composed, articulate British voice from the Cartesia library. He talks like a senior surgeon at your shoulder rather than reading the screen: he hands you each instrument with the instruction and the reason ("Here's the saw. Long, even strokes down the breastbone, and don't go deep, the heart is right under there."), and calls out what he sees: getting close to a target, too deep, too close to the artery, shaking, moving too fast, blood pressure falling, blood loss, the last 30 seconds and a countdown. When you hit the artery: "Bleeder! You've hit the artery!"
+During Steady Hands, **Riley** talks you through each procedure in a Cartesia **Sonic** voice, reacting to your real instrument movements. Riley speaks with **Clive**, a composed, articulate British voice from the Cartesia library. He talks like a senior surgeon at your shoulder rather than reading the screen: he hands you each instrument with the instruction and the reason ("Here's the saw. Long, even strokes down the breastbone, and don't go deep, the heart is right under there."), and calls out what he sees: getting close to a target, too deep, too close to the artery, shaking, moving too fast, blood pressure falling, blood loss, the last 30 seconds and a countdown. When you hit the artery: "Bleeder! You've hit the artery!"
 
 **Setup** (the key stays on your machine, never in the browser or the repo):
 
@@ -179,7 +179,7 @@ Values are in microtesla, ordered by multiplexer channel; `nan` means that senso
 
 - `viewer.html`: the 3D viewer (Web Serial + three.js), recording, replay and orientation calibration
 - `controller.js`: controller mode (cursor, flip-to-click, keyboard, target game)
-- `surgery.js`, `operations.js`: the surgery game (training drills, multi-step operations)
+- `surgery.js`, `operations.js`: Steady Hands, the surgery game (training drills, multi-step operations)
 - `voice.js`: Riley, the spoken surgical assistant (Cartesia Sonic)
 - `server.js`: local server, serves the viewer and proxies Cartesia TTS with the key from the environment
 - `attending.js`: the AI attending debrief (Claude via the Anthropic SDK)

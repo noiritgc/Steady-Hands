@@ -1,4 +1,4 @@
-// MagTrack OR operations: multi-step surgeries (cartoon, PG) modelled loosely on real open operations: cut the skin,
+// Steady Hands operations: multi-step surgeries (cartoon, PG) modelled loosely on real open operations: cut the skin,
 // get through the layers underneath, do the work inside, close up. Every step uses a mechanic that suits the magnet
 // tracker (position, depth, tilt, and motion patterns), and the instrument switches for each step:
 //   cut    (scalpel)   trace a line at the right depth
@@ -8,10 +8,10 @@
 //   grab   (forceps)   grab an organ, then lift it out or carry it somewhere
 //   pump   (hands)     press down and up in a steady rhythm
 //   stitch (needle)    dip into zig-zag points in order
-// Registers with surgery.js through window.MagTrackOR.
+// Registers with surgery.js through window.SteadyHands.
 (function () {
 'use strict';
-const OR = window.MagTrackOR;
+const OR = window.SteadyHands;
 if (!OR) return;
 const { SURFACE, SAMPLE_DT, V3, clay, solid, blob, tube, wobble, curvePts, distToPolyline } = OR;
 const clamp01 = v => Math.max(0, Math.min(1, v));

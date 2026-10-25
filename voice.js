@@ -1,4 +1,4 @@
-// MagTrack OR voice: Riley, an AI surgical assistant who talks you through each procedure in a Cartesia Sonic voice
+// Steady Hands voice: Riley, an AI surgical assistant who talks you through each procedure in a Cartesia Sonic voice
 // (requested from server.js, which holds the API key). Event-driven: the game emits 'or-event's (artery hit, step
 // start, too deep, ...), and this also watches the live state (distance to target, hand speed, tremor, vitals, clock).
 // A small director decides what is worth saying: priorities, per-event cooldowns, interruptions, escalating wording
@@ -6,7 +6,7 @@
 // Every line is also shown as a caption.
 (function () {
 'use strict';
-const OR = window.MagTrackOR;
+const OR = window.SteadyHands;
 if (!OR) return;
 const P = { chatter: 0, guide: 1, warn: 2, crit: 3 };
 const pick1 = a => a[Math.floor(Math.random() * a.length)];

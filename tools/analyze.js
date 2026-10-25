@@ -246,7 +246,7 @@ if (overall.some(a => a.length)) {
 
 if (validating) {
   head('tracking check (re-fitted from the raw data)');
-  if (!valResults.length) out('no tracking-check points in this recording (Surgery game > Setup > Tracking check while recording)');
+  if (!valResults.length) out('no tracking-check points in this recording (Steady Hands > Setup > Tracking check while recording)');
   else {
     const s = require('../motion.js').validationStats(valResults), f = v => (v * 10).toFixed(1);
     out(`MEASURED over ${s.n} points: error mean ${f(s.meanErr)} mm, median ${f(s.medianErr)} mm, RMS ${f(s.rmsErr)} mm, worst ${f(s.maxErr)} mm`);

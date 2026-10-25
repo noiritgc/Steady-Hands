@@ -1,4 +1,4 @@
-# MagTrack OR: demo script
+# Steady Hands: demo script
 
 ## Before judging (do this in the hall)
 

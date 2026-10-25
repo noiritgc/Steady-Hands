@@ -1,4 +1,4 @@
-// MagTrack OR: a surgery game played with the magnet stack as the instrument. The player stands at the bottom edge
+// Steady Hands: a surgery game played with the magnet stack as the instrument. The player stands at the bottom edge
 // of the card (ch3/ch4 nearest) and holds the stack like a scalpel over the board; its position and tilt drive the
 // instrument on screen. Lowering the tip below the virtual tissue surface cuts/touches; lifting it moves freely.
 // Three procedures (incision, tumour removal, biopsy), a patient whose vitals react to mistakes, a report card and
@@ -751,14 +751,14 @@ function hud(on) { for (const id of ['or-title', 'or-obj', 'or-timer']) $(id).st
 function menu() {
   mode = 'menu'; cur = null; clearProc(); hud(false);
   const ops = PROCS.map((p, i) => [p, i]).filter(([p]) => p.op);
-  card(`<h1>MagTrack OR</h1>
+  card(`<h1>Steady Hands</h1>
     <p>Stand at the <b>bottom edge of the board</b> (ch3/ch4 nearest you) and hold the magnet stack like an instrument, 2–4 cm above it.
     Lower the tip to cut or touch; lift it to move freely. Steady hands win.</p>
     <h3>Training: learn the controls (x-ray view)</h3>
     <button data-go="case">▶ Full training (3 drills)</button>
     ${PROCS.map((p, i) => p.op ? '' : `<button data-go="${i}">${p.title.split(' · ')[1]}</button>`).join('')}
     ${ops.length ? `<h3>Operations: real multi-step surgeries</h3>${ops.map(([p, i]) => `<button data-go="${i}">${p.title}</button>`).join('')}` : ''}
-    ${window.MagTrackOR && window.MagTrackOR.menuExtras ? window.MagTrackOR.menuExtras() : ''}
+    ${window.SteadyHands && window.SteadyHands.menuExtras ? window.SteadyHands.menuExtras() : ''}
     <h3>Leaderboard</h3>${leaderboardHtml()}`);
 }
 const nTraining = () => PROCS.filter(p => !p.op).length;   // training drills come first; operations are registered after
@@ -857,7 +857,7 @@ function finish(outcome) {
     <button data-go="${last ? 'report' : 'next'}">${last ? 'Case report (Enter)' : 'Next procedure (Enter)'}</button>
     <div id="or-debrief"></div>`);
   if (outcome === 'done') chime(); else alarm();
-  if (window.MagTrackOR.onResult) window.MagTrackOR.onResult(res, rows);   // attending.js debriefs here
+  if (window.SteadyHands.onResult) window.SteadyHands.onResult(res, rows);   // attending.js debriefs here
 }
 function report() {
   mode = 'report'; hud(false); clearProc();
@@ -897,7 +897,7 @@ function go(what) {
   else if (what === 'report') report();
   else if (what === 'save') saveScore();
   else if (what === 'menu') menu();
-  else if (window.MagTrackOR.onGo) window.MagTrackOR.onGo(what);   // bench.js: tracking check, instrument
+  else if (window.SteadyHands.onGo) window.SteadyHands.onGo(what);   // bench.js: tracking check, instrument
 }
 $('or-card').addEventListener('click', e => { const g = e.target.dataset && e.target.dataset.go; if (g) go(g); });
 addEventListener('keydown', e => {
@@ -933,8 +933,8 @@ addEventListener('magnet', e => {
 // --- open / close ---
 function close() { open = false; root.style.display = 'none'; logEvent({ event: 'or_close' }); }
 const button = document.createElement('button');
-button.textContent = 'Surgery game';
-button.title = 'MagTrack OR: a surgery game played with the magnet stack';
+button.textContent = 'Steady Hands';
+button.title = 'Steady Hands: a surgery game played with the magnet stack';
 document.querySelector('#ui .row').appendChild(button);
 button.onclick = () => {
   open = true; root.style.display = 'block'; resize();
@@ -945,7 +945,7 @@ button.onclick = () => {
 $('or-exit').onclick = close;
 
 // --- for operations.js: building blocks, live state, and registration ---
-window.MagTrackOR = {
+window.SteadyHands = {
   SURFACE, SAMPLE_DT, V3, clay, solid, blob, tube, wobble, dots, curvePts, distToPolyline, bloodPool, growPool, cutBlob, grooveFill,
   say, alarm, chime, tone, ouch, logEvent, tremorMm, setTool,
   group: procGroup, scene: scene3, skinMat,

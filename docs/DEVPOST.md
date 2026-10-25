@@ -1,4 +1,4 @@
-# MagTrack OR: Devpost write-up
+# Steady Hands: Devpost write-up
 
 > Fill in everything marked **[FILL]** before submitting. The accuracy numbers below come from the tracking check
 > on 2026-10-25 (docs/validation/). If you run it again, update them from the new report.
@@ -14,7 +14,7 @@ Surgical skill is hand skill, and hand skill takes repetition with feedback. Hos
 ## What it does
 
 - **Tracks an instrument in 3D with magnets.** A small magnet stack, bare or mounted on a plastic instrument, is tracked in position and direction (5 degrees of freedom) above a board of five 3-axis magnetometers. There's no camera and no line of sight, so your hands can't block it.
-- **A surgery game built on that tracking.**
+- **Steady Hands, a surgery game built on that tracking.**
   - Training drills: incision, tumour removal, biopsy.
   - Seven multi-step operations that follow the real steps of common surgeries: appendectomy, heart transplant, keyhole gallbladder removal, caesarean section, hip replacement, kidney transplant, and a trauma splenectomy where the patient bleeds until you clamp.
   - 13 instruments, danger structures (bile duct, sciatic nerve, iliac artery, pancreas…), a patient whose vitals react to mistakes, blood loss and a patient cam.

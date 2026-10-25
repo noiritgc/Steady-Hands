@@ -1,4 +1,4 @@
-// MagTrack OR bench: the Setup tools in the game's menu.
+// Steady Hands bench: the Setup tools in the game's menu.
 // 1. Tracking check (validation): place the magnet (or a calibrated instrument's tip) on known points of a printed
 //    1:1 grid (validation-grid.html) and record where the tracker puts it. Reports measured error, kept apart from
 //    anything that is only an estimate. Every point is logged in recordings (or_validation_point) so it can be
@@ -7,7 +7,7 @@
 //    typed in (ruler) or measured by pivot calibration (hold the tip still, rock the handle).
 (function () {
 'use strict';
-const OR = window.MagTrackOR, MM = window.MotionMath;
+const OR = window.SteadyHands, MM = window.MotionMath;
 if (!OR || !MM) return;
 const GRID = [[-2, -3], [0, -3], [2, -3], [-2, 0], [0, 0], [2, 0], [-2, 3], [0, 3], [2, 3]];   // (x, z) cm, crosses 1-9 of the template
 const CHIPS = typeof SENSOR_POS !== 'undefined' ? SENSOR_POS : [[-1.7, -3.4], [1.7, -3.4], [0, 0], [-1.7, 3.4], [1.7, 3.4]];

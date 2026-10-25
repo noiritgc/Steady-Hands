@@ -1,11 +1,11 @@
-// MagTrack OR "AI attending": after each procedure, Claude reviews the game's own measurements (points per step,
+// Steady Hands "AI attending": after each procedure, Claude reviews the game's own measurements (points per step,
 // mm off the line, tremor, angle error, blood loss, vessel hits) plus the trainee's recent attempts, and gives a short
 // debrief: what went well, the one thing to fix (tied to a measured number), and which drill to do next.
 // The game keeps the score; Claude only explains it. Uses the official Anthropic SDK straight from the browser, with
 // an API key the player pastes in, stored only in this browser's localStorage (never in the repo or recordings).
 (function () {
 'use strict';
-const OR = window.MagTrackOR;
+const OR = window.SteadyHands;
 if (!OR) return;
 const MODEL = 'claude-sonnet-5-5';   // Sonnet: plenty for a short debrief, and easier on API credits than Opus
 const SDK_URL = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.133.0/+esm';
@@ -24,7 +24,7 @@ const TEACHES = {
   kidney: 'a 9-step kidney transplant (vessel clamps, fine anastomosis stitches, steady holds)',
   spleen: 'a 10-step trauma splenectomy under time pressure (suction, packing, clamping while the patient bleeds)',
 };
-const SYSTEM = `You are the attending surgeon in MagTrack OR, a cartoon surgical-skills training game. The trainee holds a small magnet stack like an instrument; a sensor board tracks it in 3D, so the game measures their real hand: path accuracy, depth control, tool angle, steadiness (tremor) and timing. Lowering the tip below the virtual tissue surface cuts or touches; the patient's vitals react to mistakes.
+const SYSTEM = `You are the attending surgeon in Steady Hands, a cartoon surgical-skills training game. The trainee holds a small magnet stack like an instrument; a sensor board tracks it in 3D, so the game measures their real hand: path accuracy, depth control, tool angle, steadiness (tremor) and timing. Lowering the tip below the virtual tissue surface cuts or touches; the patient's vitals react to mistakes.
 
 The trainee is ${TRAINEE}.
 
