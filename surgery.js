@@ -424,7 +424,21 @@ function contactPoint(p, d, y) {   // where the axis through p crosses height y
 }
 const aimY = () => (cur && cur.aimY != null ? cur.aimY : SURFACE);   // the tissue the current step works on (skin, or inside)
 function lose() { present = false; posFilter.reset(); dirFilter.reset(); lastPos = pendingJump = null; }
+// The instrument: how far its tip is from the magnet's centre, along the axis. The bare stack's tip is its end
+// (half its length); a physical instrument with the magnet mounted on it is measured or pivot-calibrated (bench.js).
+const INSTRUMENT_KEY = 'magtrack.or.instrument';
+const BARE = { name: 'Bare magnet stack', offset: STACK_LEN / 2, source: 'default' };
+let instrument = (() => {
+  try { const v = JSON.parse(localStorage.getItem(INSTRUMENT_KEY)); return v && v.offset > 0 && v.offset < 15 ? v : BARE; } catch (e) { return BARE; }
+})();
+function setInstrument(v) {
+  instrument = v && v.offset > 0 && v.offset < 15 ? { ...v } : BARE;
+  try { if (instrument === BARE) localStorage.removeItem(INSTRUMENT_KEY); else localStorage.setItem(INSTRUMENT_KEY, JSON.stringify(instrument)); } catch (e) {}
+  logEvent({ event: 'or_instrument', instrument });
+}
+let rawFit = null;   // this sample's unfiltered fit with the tip-pointing axis, for calibration and validation
 function onFit(fit) {
+  rawFit = null;
   if (!fit) { if (++missed > DROPOUT_HOLD) lose(); return; }   // brief dropouts keep the last pose
   // a single fit far from the last one is usually a bad solve: wait for a second one nearby before believing it
   if (lastPos && M.norm(M.sub(fit.pos, lastPos)) > JUMP_CM && !(pendingJump && M.norm(M.sub(fit.pos, pendingJump)) < 1)) {
@@ -444,7 +458,8 @@ function onFit(fit) {
   raw.push(fit.pos); if (raw.length > 19) raw.shift();   // last ~1 s
   const mid = posFilter.f(fit.pos);
   dir = M.normalize(dirFilter.f(ax));
-  tip = M.add(mid, M.scale(dir, STACK_LEN / 2));
+  tip = M.add(mid, M.scale(dir, instrument.offset));
+  rawFit = { pos: fit.pos, ax, rel: fit.rel };
   cut = contactPoint(tip, dir, aimY());
   present = true;
 }
@@ -743,6 +758,7 @@ function menu() {
     <button data-go="case">▶ Full training (3 drills)</button>
     ${PROCS.map((p, i) => p.op ? '' : `<button data-go="${i}">${p.title.split(' · ')[1]}</button>`).join('')}
     ${ops.length ? `<h3>Operations: real multi-step surgeries</h3>${ops.map(([p, i]) => `<button data-go="${i}">${p.title}</button>`).join('')}` : ''}
+    ${window.MagTrackOR && window.MagTrackOR.menuExtras ? window.MagTrackOR.menuExtras() : ''}
     <h3>Leaderboard</h3>${leaderboardHtml()}`);
 }
 const nTraining = () => PROCS.filter(p => !p.op).length;   // training drills come first; operations are registered after
@@ -881,6 +897,7 @@ function go(what) {
   else if (what === 'report') report();
   else if (what === 'save') saveScore();
   else if (what === 'menu') menu();
+  else if (window.MagTrackOR.onGo) window.MagTrackOR.onGo(what);   // bench.js: tracking check, instrument
 }
 $('or-card').addEventListener('click', e => { const g = e.target.dataset && e.target.dataset.go; if (g) go(g); });
 addEventListener('keydown', e => {
@@ -932,7 +949,9 @@ window.MagTrackOR = {
   SURFACE, SAMPLE_DT, V3, clay, solid, blob, tube, wobble, dots, curvePts, distToPolyline, bloodPool, growPool, cutBlob, grooveFill,
   say, alarm, chime, tone, ouch, logEvent, tremorMm, setTool,
   group: procGroup, scene: scene3, skinMat,
-  get tip() { return tip; }, get dir() { return dir; }, get cut() { return cut; }, history: loadHistory, get pt() { return pt; }, get sample() { return sample; },
+  get tip() { return tip; }, get dir() { return dir; }, get cut() { return cut; }, history: loadHistory,
+  get raw() { return rawFit; }, get instrument() { return instrument; }, setInstrument, STACK_LEN,
+  card, menu, setup() { mode = 'setup'; hud(false); clearProc(); }, get mode() { return mode; }, get pt() { return pt; }, get sample() { return sample; },
   setObjective(text) { $('or-obj').textContent = text; },
   registerTool(name, meshes) { toolModels[name] = meshes; },
   onFrame(fn) { frameHooks.push(fn); },

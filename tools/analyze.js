@@ -10,6 +10,8 @@
 //                  cal = best calibration available (default)
 //   --csv out.csv  write every sample as CSV (t_s, x0, y0, z0, ... x4, y4, z4; raw uT)
 //   --recorded-axes  use the AXIS_MAP stored in the recording instead of the current one
+//   --validate     re-fit every tracking-check point (the game's Setup > Tracking check) from the raw data and
+//                  report the error against the known positions, independently of what the game showed
 const fs = require('fs');
 const M = require('../magmath.js');
 
@@ -25,7 +27,7 @@ const opt = name => { const i = args.indexOf('--' + name); return i >= 0 ? args[
 const range = s => { if (!s) return null; const [a, b] = s.split('-').map(Number); return [a * 1000, b * 1000]; };
 const VALUED = ['--tumble', '--spin', '--window', '--axes', '--csv'];
 const file = args.find((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1]));
-if (!file) { console.error('usage: node tools/analyze.js <recording.log> [--tumble A-B] [--spin A-B] [--window A-B] [--axes raw|cal] [--csv out.csv]'); process.exit(1); }
+if (!file) { console.error('usage: node tools/analyze.js <recording.log> [--tumble A-B] [--spin A-B] [--window A-B] [--axes raw|cal] [--csv out.csv] [--validate]'); process.exit(1); }
 
 const entries = M.parseLog(fs.readFileSync(file, 'utf8'));
 const events = entries.filter(e => e.kind === 'app');
@@ -150,6 +152,10 @@ const marks = entries.filter(e => e.kind === 'mark');
 const windows = marks.map((e, k) => ({ t: e.t, note: e.text, lo: Math.max(k ? marks[k - 1].t : -Infinity, e.t - 3000), hi: Math.min(k + 1 < marks.length ? marks[k + 1].t : Infinity, e.t + 3000) }));
 const w = range(opt('window'));
 if (w) windows.push({ t: w[0], end: w[1], note: `--window ${opt('window')}` });
+// tracking-check points: the stretch the game averaged ends when the point was logged
+const validating = args.includes('--validate'), valResults = [];
+if (validating) for (const e of events.filter(e => e.data.event === 'or_validation_point'))
+  windows.push({ t: e.t - e.data.secs * 1000, end: e.t + 1, note: `tracking check, cross ${e.data.k}`, val: e.data });
 const fitThr = noise.map(n => isNaN(n) ? FIT_MIN_UT : Math.max(FIT_MIN_UT, NOISE_MULT * n));
 const clippedRaw = raw => raw.some((x, k) => Math.abs(x) >= 0.97 * RAIL_UT[k]);
 const pct = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(p * (s.length - 1))] : NaN; };
@@ -213,6 +219,13 @@ for (const win of windows) {
   const rel = pct(fits.map(x => x.fit.rel), 0.5);
   const dist = POS.map(p => Math.hypot(p[0] - pos[0], p[2] - pos[2])), ni = dist.indexOf(Math.min(...dist));
   out(`  magnet over ch${ni} (${dist[ni].toFixed(1)} cm off), ${pos[1].toFixed(1)} cm up, north end ${north}, model error ${(rel * 100).toFixed(0)}% (median)${rel > 0.35 ? '  << poor fit: chip axes or positions are probably wrong' : ''}`);
+  if (win.val) {   // known position vs this re-fit (and vs what the game measured live)
+    const down = dir[1] > 0 ? M.scale(dir, -1) : dir;
+    const meas = win.val.what === 'tip' ? M.add(pos, M.scale(down, win.val.offset)) : pos;
+    const err = M.norm(M.sub(meas, win.val.known)), live = M.norm(M.sub(win.val.measured, win.val.known));
+    valResults.push({ known: win.val.known, measured: meas });
+    out(`  validation: known (${win.val.known.map(v => v.toFixed(2)).join(', ')}) cm, re-fit (${meas.map(v => v.toFixed(2)).join(', ')}) cm, error ${(err * 10).toFixed(1)} mm (in the game: ${(live * 10).toFixed(1)} mm)`);
+  }
   const said = /ch(\d)/i.exec(win.note);
   if (said && +said[1] !== ni) out(`  !! note says ch${said[1]} but the magnet fits best over ch${ni}: check wiring / SENSOR_POS`);
   const pole = /\bN(?:orth)?\s*(up|down)\b/i.exec(win.note);
@@ -229,6 +242,17 @@ for (const win of windows) {
 if (overall.some(a => a.length)) {
   out('\nall marks: angle between each chip\'s reading and the magnet model (median, 90th percentile)');
   overall.forEach((a, i) => out(`  ch${i}  ${a.length ? `${pct(a, 0.5).toFixed(1).padStart(5)}°  ${pct(a, 0.9).toFixed(1).padStart(5)}°  (${a.length} samples)` : 'no data'}${pct(a, 0.5) > 15 ? '  << this chip disagrees' : ''}`));
+}
+
+if (validating) {
+  head('tracking check (re-fitted from the raw data)');
+  if (!valResults.length) out('no tracking-check points in this recording (Surgery game > Setup > Tracking check while recording)');
+  else {
+    const s = require('../motion.js').validationStats(valResults), f = v => (v * 10).toFixed(1);
+    out(`MEASURED over ${s.n} points: error mean ${f(s.meanErr)} mm, median ${f(s.medianErr)} mm, RMS ${f(s.rmsErr)} mm, worst ${f(s.maxErr)} mm`);
+    out(`  horizontal RMS ${f(s.horizRms)} mm, vertical RMS ${f(s.vertRms)} mm, systematic offset (x, y, z) ${s.bias.map(f).join(', ')} mm`);
+    out('  placement by hand on a printed cross is good to about +-1 mm; only the tested points and heights are covered');
+  }
 }
 
 // --- csv ---
