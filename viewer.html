@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MagTrack Viewer</title>
+<style>
+  :root { --bg: #0f1115; --panel: #1a1d24; --text: #e6e8ec; --muted: #8a909c; --accent: #4da3ff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px system-ui, sans-serif; overflow: hidden; }
+  #ui { position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { background: var(--panel); color: var(--text); border: 1px solid #333844; border-radius: 6px; padding: 8px 14px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  #status { color: var(--muted); }
+  #readout { position: absolute; bottom: 12px; left: 12px; font: 12px ui-monospace, monospace; color: var(--muted); white-space: pre; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <button id="connect">Connect</button>
+  <button id="zero">Zero (remove background)</button>
+  <span id="status">Chrome/Edge required &middot; not connected</span>
+</div>
+<div id="readout"></div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script>
+// Sensor positions in cm [x, z], Z order as mounted (negative z = top of the card). Index = mux channel.
+const SENSOR_POS = [
+  [-1.7, -3.4],  // ch0 top left
+  [1.7, -3.4],   // ch1 top right
+  [0, 0],        // ch2 middle
+  [-1.7, 3.4],   // ch3 bottom left
+  [1.7, 3.4],    // ch4 bottom right
+];
+const MIN_THRESH_UT = 50; // never show changes smaller than this (microtesla)
+const NOISE_MULT = 5;      // per-sensor threshold = NOISE_MULT x its measured noise
+const SMOOTH = 0.35;       // 0..1, lower = smoother but laggier
+const ZERO_SAMPLES = 25;   // samples averaged when zeroing (~1.5 s)
+
+// --- scene ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f1115);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(6, 8, 9);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 1));
+scene.add(new THREE.GridHelper(12, 12, 0x333844, 0x22252d));
+
+const board = new THREE.Mesh(new THREE.BoxGeometry(6, 0.15, 10), new THREE.MeshStandardMaterial({ color: 0x1d5c3a }));
+board.position.y = -0.1;
+scene.add(board);
+
+function label(text) {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 32;
+  const g = c.getContext('2d'); g.fillStyle = '#e6e8ec'; g.font = 'bold 22px sans-serif'; g.textAlign = 'center'; g.fillText(text, 32, 24);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c) }));
+  s.scale.set(1, 0.5, 1); return s;
+}
+
+const sensors = SENSOR_POS.map(([x, z], i) => {
+  const chip = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.6), new THREE.MeshStandardMaterial({ color: 0x6a3fa0 }));
+  chip.position.set(x, 0.05, z);
+  scene.add(chip);
+  const l = label('ch' + i); l.position.set(x, -0.4, z + 0.6); scene.add(l);
+  const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), chip.position, 1, 0x4da3ff, 0.35, 0.2);
+  arrow.visible = false; scene.add(arrow);
+  return { chip, arrow, pos: chip.position.clone(), on: false, thresh: 40 };
+});
+
+const ghost = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 16), new THREE.MeshStandardMaterial({ color: 0xff5a5a, transparent: true, opacity: 0.8 }));
+ghost.visible = false; scene.add(ghost);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+(function loop() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); })();
+
+// --- data ---
+let smoothed = null, baseline = null, zeroBuf = null;
+const statusEl = () => document.getElementById('status');
+
+// Sensor axes -> scene: sensor X -> +x, sensor Y -> -z, sensor Z (out of chip) -> +y
+const toScene = (bx, by, bz) => new THREE.Vector3(bx, bz, -by);
+
+function startZero() { zeroBuf = []; statusEl().textContent = 'zeroing — keep magnets away…'; }
+
+// Average the collected samples into the baseline and set each sensor's threshold from its noise.
+function finishZero() {
+  baseline = zeroBuf[0].map((_, j) => zeroBuf.reduce((a, r) => a + r[j], 0) / zeroBuf.length);
+  sensors.forEach((s, i) => {
+    const mags = zeroBuf.map(r => Math.hypot(...[0, 1, 2].map(k => r[i * 3 + k] - baseline[i * 3 + k])));
+    const rms = Math.sqrt(mags.reduce((a, m) => a + m * m, 0) / mags.length);
+    s.thresh = Math.max(MIN_THRESH_UT, NOISE_MULT * rms);
+  });
+  zeroBuf = null;
+  smoothed = baseline.slice();
+  statusEl().textContent = 'ready · thresholds ' + sensors.map(s => s.thresh.toFixed(0)).join('/') + ' µT';
+}
+
+function update(raw) {
+  if (zeroBuf) {
+    zeroBuf.push(raw);
+    statusEl().textContent = `zeroing — keep magnets away… ${zeroBuf.length}/${ZERO_SAMPLES}`;
+    if (zeroBuf.length >= ZERO_SAMPLES) finishZero();
+    return;
+  }
+  if (!baseline) return;
+  smoothed = smoothed.map((v, j) => isNaN(raw[j]) ? NaN : isNaN(v) ? raw[j] : v + SMOOTH * (raw[j] - v));
+  const fields = sensors.map((s, i) => {
+    const d = [0, 1, 2].map(k => smoothed[i * 3 + k] - baseline[i * 3 + k]);
+    return d.some(isNaN) ? null : toScene(...d);
+  });
+  // hysteresis: turn on above threshold, off below 70% of it, so arrows don't flicker
+  sensors.forEach((s, i) => {
+    const m = fields[i] ? fields[i].length() : 0;
+    s.on = s.on ? m > 0.7 * s.thresh : m > s.thresh;
+  });
+
+  // Rough magnet position: point closest to every sensor's field line, weighted by strength.
+  const A = new THREE.Matrix3().set(0, 0, 0, 0, 0, 0, 0, 0, 0), b = new THREE.Vector3();
+  let wsum = 0;
+  fields.forEach((f, i) => {
+    if (!sensors[i].on) return;
+    const d = f.clone().normalize(), w = f.length(), p = sensors[i].pos;
+    const m = [1 - d.x * d.x, -d.x * d.y, -d.x * d.z, -d.y * d.x, 1 - d.y * d.y, -d.y * d.z, -d.z * d.x, -d.z * d.y, 1 - d.z * d.z];
+    A.elements.forEach((_, k) => A.elements[k] += w * m[k]);
+    b.x += w * (m[0] * p.x + m[1] * p.y + m[2] * p.z);
+    b.y += w * (m[3] * p.x + m[4] * p.y + m[5] * p.z);
+    b.z += w * (m[6] * p.x + m[7] * p.y + m[8] * p.z);
+    wsum += w;
+  });
+  let target = null;
+  // need at least two strong sensors before guessing a position
+  const strong = sensors.filter((s, i) => s.on && fields[i].length() > 2 * s.thresh).length;
+  if (wsum > 0 && strong >= 2) {
+    // small pull toward a point above the board keeps it stable with few active sensors
+    const reg = 0.05 * wsum;
+    A.elements[0] += reg; A.elements[4] += reg; A.elements[8] += reg;
+    b.add(new THREE.Vector3(0, 2, 0).multiplyScalar(reg));
+    target = b.applyMatrix3(A.clone().invert());
+    target.clampLength(0, 12);
+  }
+  if (target) {
+    if (ghost.visible) ghost.position.lerp(target, 0.25); else ghost.position.copy(target);
+  }
+  ghost.visible = !!target;
+
+  fields.forEach((f, i) => {
+    const { arrow, chip, pos, on, thresh } = sensors[i];
+    const mag = f ? f.length() : 0;
+    arrow.visible = on;
+    chip.material.color.set(f ? (on ? 0xb07cff : 0x6a3fa0) : 0x444444);
+    if (!on) return;
+    const dir = f.clone().normalize();
+    if (ghost.visible && dir.dot(ghost.position.clone().sub(pos)) < 0) dir.negate();   // point toward the source
+    const len = Math.min(4, 0.6 * Math.log2(mag / thresh + 1) + 0.4);
+    arrow.setDirection(dir);
+    arrow.setLength(len, Math.min(0.4, len * 0.35), 0.22);
+    arrow.setColor(new THREE.Color().setHSL(0.6 - Math.min(1, mag / 3000) * 0.6, 1, 0.55));
+  });
+
+  document.getElementById('readout').textContent = fields.map((f, i) =>
+    `ch${i} ` + (f ? `|ΔB| ${f.length().toFixed(0).padStart(5)} µT  (threshold ${sensors[i].thresh.toFixed(0)})` : 'missing')).join('\n');
+}
+
+document.getElementById('zero').onclick = startZero;
+
+document.getElementById('connect').onclick = async () => {
+  const status = document.getElementById('status');
+  if (!('serial' in navigator)) { status.textContent = 'Web Serial not supported — use Chrome or Edge'; return; }
+  try {
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    await port.setSignals({ dataTerminalReady: true });   // CircuitPython only sends when DTR is set
+    baseline = null;
+    startZero();
+    const reader = port.readable.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = '', lineCount = 0, lastLine = '';
+    const watchdog = setInterval(() => {   // diagnose a silent board while zeroing
+      if (zeroBuf && zeroBuf.length === 0)
+        status.textContent = `waiting for data — ${lineCount} lines received` + (lastLine ? `, last: "${lastLine.slice(0, 60)}"` : '');
+    }, 1000);
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      const lines = buf.split('\n'); buf = lines.pop();
+      lineCount += lines.length;
+      if (lines.length) lastLine = lines[lines.length - 1].trim();
+      if (/Code done running|Press any key to enter the REPL/.test(value)) {   // board's program stopped: Ctrl-D restarts it
+        const w = port.writable.getWriter(); await w.write(new Uint8Array([4])); w.releaseLock();
+      }
+      const last = lines.reverse().find(l => l.startsWith('B,'));   // only draw the newest sample
+      if (last) {
+        const vals = last.trim().split(',').slice(1).map(Number);
+        if (vals.length === 15) update(vals);
+      }
+    }
+    clearInterval(watchdog);
+  } catch (e) { status.textContent = 'error: ' + e.message; }
+};
+</script>
+</body>
+</html>
