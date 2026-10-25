@@ -47,7 +47,7 @@ Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour re
 
 ## Voice: Riley, the AI surgical assistant (Cartesia)
 
-During the surgery game, **Riley** talks you through each procedure in a Cartesia **Sonic** voice, reacting to your real instrument movements. She hands you each instrument ("Bone saw."), gives the step, and calls out what she sees: getting close to a target, too deep, too close to the artery, shaking, moving too fast, blood pressure falling, blood loss, the last 30 seconds and a countdown. When you hit the artery: "Bleeder! You hit the artery!"
+During the surgery game, **Riley** talks you through each procedure in a Cartesia **Sonic** voice, reacting to your real instrument movements. Riley speaks with **Clive**, a composed, articulate British voice from the Cartesia library. He hands you each instrument ("Bone saw."), gives the step, and calls out what he sees: getting close to a target, too deep, too close to the artery, shaking, moving too fast, blood pressure falling, blood loss, the last 30 seconds and a countdown. When you hit the artery: "Bleeder! You hit the artery!"
 
 **Setup** (the key stays on your machine, never in the browser or the repo):
 
@@ -56,12 +56,12 @@ cp .env.example .env          # then put your key in .env: CARTESIA_API_KEY=sk_c
 node server.js                # or: CARTESIA_API_KEY=sk_car_... node server.js
 ```
 
-Open http://localhost:8765/viewer.html. `server.js` (Node 18+, no dependencies) serves the viewer and proxies speech to Cartesia; it listens on 127.0.0.1 only and won't serve dotfiles such as `.env`. Optional settings: `CARTESIA_VOICE_ID` (otherwise it picks a calm English voice), `CARTESIA_MODEL` (default `sonic-3.6`).
+Open http://localhost:8765/viewer.html. `server.js` (Node 18+, no dependencies) serves the viewer and proxies speech to Cartesia; it listens on 127.0.0.1 only and won't serve dotfiles such as `.env`. Optional settings: `CARTESIA_VOICE_ID` (default: Clive, `b24f41fd-00a3-4cd8-992a-a0c9f13f3ef1`), `CARTESIA_MODEL` (default `sonic-3.6`).
 
 **How it works:**
 - The game emits events (step start, too deep, artery hit, …) and `voice.js` also watches live state each tracking sample: distance to the target, hand speed inside the patient, tremor while holding, blood pressure, blood loss, and the clock.
 - A director picks what to say: four priority levels (critical, warning, guidance, chatter). More urgent lines interrupt less urgent ones; otherwise only the most important waiting line is kept, and stale ones are dropped. Each event has a cooldown, and repeating a mistake escalates the wording, speed and emotion.
-- Cartesia features used: the Sonic TTS bytes API (`/tts/bytes`) with `sonic-3.6`, per-line `generation_config` speed and emotion (calm, then determined, then scared as things get worse; excited when the heart restarts), and the voices API to pick a voice. Audio streams as MP3 and starts playing on the first bytes. `server.js` caches recent lines and prefetches likely ones per step, so frequent callouts are instant and don't spend credits again.
+- Cartesia features used: the Sonic TTS bytes API (`/tts/bytes`) with `sonic-3.6`, per-line `generation_config` speed and emotion (calm, then determined, then scared as things get worse; excited when the heart restarts), and the voices API to look up the voice. Audio streams as MP3 and starts playing on the first bytes. `server.js` caches recent lines and prefetches likely ones per step, so frequent callouts are instant and don't spend credits again.
 - Speech never blocks tracking: requests and playback are asynchronous. Every line also appears as a caption, so it works with the sound off and for players who are deaf or hard of hearing. The 🔊 button mutes Riley.
 
 **Known limitations:**

@@ -2,7 +2,7 @@
 // MagTrack local server: serves the viewer and proxies text-to-speech to Cartesia, so the API key stays on this
 // machine (CARTESIA_API_KEY in the environment, or in a git-ignored .env file) and never reaches the browser or repo.
 //   CARTESIA_API_KEY=sk_car_... node server.js      then open http://localhost:8765/viewer.html
-// Optional: CARTESIA_VOICE_ID (else a calm English voice is picked), CARTESIA_MODEL (default sonic-3.6), PORT.
+// Optional: CARTESIA_VOICE_ID (default "Clive"), CARTESIA_MODEL (default sonic-3.6), PORT.
 // No dependencies (Node 18+). Listens on 127.0.0.1 only, so nobody else on the network can spend your credits.
 'use strict';
 const http = require('http');
@@ -18,7 +18,10 @@ const API = process.env.CARTESIA_API_BASE || 'https://api.cartesia.ai';   // ove
 const VERSION = '2026-08-14';
 const EMOTIONS = new Set(['neutral', 'calm', 'angry', 'content', 'sad', 'scared', 'happy', 'excited', 'determined']);
 const MAX_TEXT = 240, MAX_CACHE = 400, MAX_INFLIGHT = 4;
-let voice = { id: process.env.CARTESIA_VOICE_ID || '', name: '' };
+// Riley's voice: "Clive", a composed, articulate British (en-GB) voice from the Cartesia library
+const DEFAULT_VOICE = { id: 'b24f41fd-00a3-4cd8-992a-a0c9f13f3ef1', name: 'Clive' };
+const VOICE_ID = process.env.CARTESIA_VOICE_ID || DEFAULT_VOICE.id;
+let voice = { id: VOICE_ID, name: VOICE_ID === DEFAULT_VOICE.id ? DEFAULT_VOICE.name : '' };
 
 function loadDotEnv(file) {   // KEY=value lines; real environment variables win
   let text;
@@ -32,19 +35,14 @@ const cartesia = (p, opts = {}) => fetch(API + p, {
   ...opts, headers: { Authorization: `Bearer ${KEY}`, 'Cartesia-Version': VERSION, 'Content-Type': 'application/json', ...(opts.headers || {}) },
 });
 
-// Pick a voice when none is configured: a calm, clear English voice suits a surgical assistant.
+// Look up the configured voice's name for the status line (the voices API is searched by ID).
 async function chooseVoice() {
-  if (!KEY) return;
+  if (!KEY || voice.name) return;
   try {
-    if (voice.id) return;
-    for (const q of ['calm', 'professional', 'clear']) {
-      const r = await cartesia(`/voices?language=en&limit=20&q=${q}`);
-      if (!r.ok) throw new Error(`voices: HTTP ${r.status}`);
-      const list = (await r.json()).data || [];
-      if (list.length) { voice = { id: list[0].id, name: list[0].name }; return; }
-    }
-  } catch (e) { console.warn('Could not list voices:', e.message); }
-  if (!voice.id) voice = { id: 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4', name: 'docs example voice' };
+    const r = await cartesia(`/voices?q=${encodeURIComponent(voice.id)}&limit=1`);
+    const v = r.ok && ((await r.json()).data || [])[0];
+    if (v && v.id === voice.id) voice.name = v.name;
+  } catch (e) { console.warn('Could not look up the voice:', e.message); }
 }
 
 // --- speech: GET /api/tts?text=...&emotion=calm&speed=1.1 -> MP3, streamed as it arrives ---
