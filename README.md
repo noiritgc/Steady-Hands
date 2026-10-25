@@ -45,6 +45,23 @@ Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour re
 
 Cuts, saw strokes and stitches are judged where the instrument's axis meets the tissue, not at the hidden tip, so tilting the instrument (most people hold it about 45° over) doesn't pull the cut off the line. A ring on the skin shows that point: white above the skin, green in the cutting band, yellow too shallow, red too deep. Tracking is smoothed with a One Euro filter (steady when you hold still, quick when you move), short dropouts and single bad fits are ignored, and the instrument is drawn smoothly between the ~19 samples a second.
 
+**Motion analytics.** Every procedure also measures how the hand moved, using the hand-motion measures from surgical-skills research plus smoothness, all computed by `motion.js` from the tracked tip:
+- **Path length**: how far the tip travelled. Positions are lightly smoothed and only steps above the noise floor count, so jitter while holding still adds nothing.
+- **Movements**: separate movements, with hysteresis on speed (one starts above 2.5 cm/s and ends below 1.2 cm/s).
+- **Idle time**: hesitation, meaning still for at least 0.5 s while hovering above the tissue. Intentional holds in the tissue don't count.
+- **Smoothness**: SPARC, the spectral arc length of each movement's speed profile. It is chosen because measurement noise barely changes it, unlike jerk-based measures. Closer to 0 is smoother.
+
+The left gauge shows path, movements and idle time live. The result card shows all four next to your average of the last three completed runs of that procedure, with score and path-length trend lines. History is kept per procedure in this browser (`magtrack.or.history`). The numbers go to the AI attending, which is asked to coach on progress, and to Riley, who says your clearest improvement ("That's 23 percent less wasted motion than your average.") and nudges you after 5 s of hesitating.
+
+**Setup › 🎯 Tracking check** measures tracking accuracy against known physical positions:
+1. Print `validation-grid.html` at 100% and check its 5 cm bar with a ruler.
+2. Lay it over the chips and stand the magnet on a non-metal spacer of known height on each of the 9 crosses.
+3. Each point records automatically after 1.5 s steady, or press Space to record now.
+
+The report keeps **measured** results (mean/median/RMS/worst error, horizontal vs vertical, systematic offset, jitter, the tested heights) apart from **what is not measured or only estimated**: untested heights and tilts, ±1 mm hand placement, and the model-fit residual, which is not an accuracy figure. Results download as JSON and are logged in recordings. `node tools/analyze.js <recording> --validate` re-fits every point from the raw sensor data, so the number can be reproduced independently of the game.
+
+**Setup › 🔧 Instrument** lets you use a physical, non-metallic instrument (plastic, wood or 3D-printed) with the magnet stack mounted on it, in line and near the tip. Set its magnet-to-tip offset with a ruler, or measure it by **pivot calibration**: keep the tip still on one point and rock the handle for 10 s, and a least-squares fit finds the point that stayed still. The game then uses that tip everywhere. Steel instruments distort the field, and the magnet must stay within about 5 cm of the board.
+
 **🩺 AI attending** (bottom left in the game): after each procedure, Claude (`claude-sonnet-5-5`) reads the game's measurements (points per step, mm off the line, tremor, angle error, blood loss, vessel hits) and your recent attempts, and returns a short debrief: what went well, the one thing to fix (tied to a measured number), and which drill to do next. The game keeps the score; Claude only explains it. It needs internet and an Anthropic API key, which you paste in the game: the key stays in that browser's localStorage and is sent only to Anthropic (the official SDK is loaded from jsdelivr, pinned). Don't enter a key on a shared computer, and don't host the page publicly with a key in it. Debriefs are logged in recordings (`or_debrief`) so you can measure progress.
 
 ## Voice: Riley, the AI surgical assistant (Cartesia)
@@ -158,6 +175,10 @@ Values are in microtesla, ordered by multiplexer channel; `nan` means that senso
 - `server.js`: local server, serves the viewer and proxies Cartesia TTS with the key from the environment
 - `attending.js`: the AI attending debrief (Claude via the Anthropic SDK)
 - `magmath.js`: magnet fit, orientation calibration and recording parser, shared by the viewer and `tools/analyze.js`
-- `tools/analyze.js`: command-line report for a recording
+- `motion.js`: motion analytics (path length, movements, idle, SPARC), validation statistics and pivot calibration, shared by the game, tools and tests
+- `bench.js`: the game's Setup tools (tracking check, instrument offset and pivot calibration)
+- `validation-grid.html`: printable 1:1 grid of known points for the tracking check
+- `tests/`: `node --test tests/*.test.js` (motion analytics, pivot calibration, and the end-to-end validation re-fit on a synthetic recording)
+- `tools/analyze.js`: command-line report for a recording (`--validate` re-fits tracking-check points)
 - `firmware/code.py`: CircuitPython firmware
 - `vendor/`: three.js r128 and OrbitControls, bundled so the viewer works offline
