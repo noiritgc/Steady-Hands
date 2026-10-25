@@ -67,9 +67,19 @@ css.textContent = `
         color: #fff; background: #ff7a8a; border: 4px solid var(--ink); border-radius: 999px; padding: 8px 18px; box-shadow: 0 5px 0 var(--ink); }
   #or .nohand:empty { display: none; }
   #or .exit { position: absolute; bottom: 14px; right: 18px; margin: 0; font-size: 14px; padding: 8px 16px; background: var(--paper); }
+  /* patient cam: a second camera renders the face into this frame (see the render loop) */
+  #or .facecam { position: absolute; right: 14px; top: 236px; width: 270px; height: 190px; box-sizing: border-box; pointer-events: none;
+        border: 5px solid var(--ink); outline: 6px solid #f4f1ff; border-radius: 10px; box-shadow: 0 12px 0 var(--ink); }
+  #or .facecam span { position: absolute; left: 8px; top: 8px; background: var(--paper); border: 3px solid var(--ink); border-radius: 999px;
+        padding: 2px 10px; font: 900 11px ui-rounded, system-ui; letter-spacing: .6px; }
+  #or .facecam b { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); white-space: nowrap; background: var(--paper);
+        border: 3px solid var(--ink); border-radius: 999px; padding: 3px 12px; font: 900 14px ui-rounded, system-ui; }
+  #or .facecam b.hurt { background: #ffc24d; } #or .facecam b.crit { background: #ff7a8a; color: #fff; } #or .facecam b.dead { background: var(--ink); color: #fff; }
   @media (max-width: 1100px) {
     #or .top h2 { font-size: 22px; } #or .top .obj, #or .timer { font-size: 13px; max-width: 46vw; }
     #or .monitor { transform: scale(0.78); transform-origin: top right; }
+    #or .facecam { top: 186px; transform: scale(0.78); transform-origin: top right; }
+    #or .msg { font-size: 34px; }
     #or .gauge { transform: translateY(-50%) scale(0.85); transform-origin: left center; }
   }
 `;
@@ -84,6 +94,7 @@ root.innerHTML = `
   <div class="gauge"><div class="lbl">tip depth</div>
     <div class="bar" id="or-bar"><div class="deep" id="or-deep"></div><div class="band" id="or-band"></div><div class="surf" id="or-surf"></div><div class="tipmark" id="or-tip"></div></div>
     <div class="lbl">below surface</div><b id="or-depth">—</b><div class="lbl">tremor</div><b id="or-tremor">—</b><div class="lbl">tilt</div><b id="or-tilt">—</b></div>
+  <div class="facecam" id="or-face"><span>PATIENT CAM</span><b id="or-mood">sleeping peacefully</b></div>
   <div class="msg" id="or-msg"></div>
   <div class="nohand" id="or-nohand"></div>
   <div class="card" id="or-card"></div>
@@ -165,8 +176,9 @@ const skinMat = clay(0xffc9a8, 0.7);
 const head = new THREE.Group();
 head.position.set(0, SURFACE - 0.5, -13);
 const skull = solid(new THREE.SphereGeometry(2, 40, 28), skinMat); skull.scale.set(1, 0.92, 1.05);
-const capMesh = solid(new THREE.SphereGeometry(2.08, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), clay(0x4fc3b0, 0.95));
-capMesh.rotation.x = -Math.PI / 2.4;
+// a puffy bouffant cap over the back of the head, clear of the face
+const capMesh = solid(new THREE.SphereGeometry(2.1, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), clay(0x4fc3b0, 0.95), 0, 0, -1.0);
+capMesh.rotation.x = -Math.PI / 2;
 const ink = clay(0x2b2540, 0.6);
 // the face looks up; going from the crown (-z) toward the body: brows, eyes, nose, oxygen mask
 const eyes = [-0.7, 0.7].map(x => { const e = solid(new THREE.SphereGeometry(0.3, 16, 10), ink, x, 1.8, -0.15); e.scale.set(1, 0.3, 0.45); return e; });
@@ -175,8 +187,22 @@ const xEyes = [-0.7, 0.7].flatMap(x => [0.6, -0.6].map(r => { const b = solid(ne
 const nose = solid(new THREE.SphereGeometry(0.42, 20, 14), skinMat, 0, 1.75, 0.55);
 const mask = new THREE.Mesh(new THREE.SphereGeometry(0.9, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2), clay(0x9be7ff, 0.2, { transparent: true, opacity: 0.55 }));
 mask.position.set(0, 1.5, 1.05);
-head.add(skull, capMesh, ...eyes, ...brows, ...xEyes, nose, mask);
+// distress extras: flushed cheeks and a sweat drop by the temple
+const blush = [-1.15, 1.15].map(x => { const c = new THREE.Mesh(new THREE.SphereGeometry(0.34, 16, 10), clay(0xff5c7a, 0.6, { transparent: true, opacity: 0.85 }));
+  c.position.set(x, 1.62, 0.35); c.scale.set(1, 0.25, 0.7); c.visible = false; return c; });
+const sweat = new THREE.Group();
+sweat.add(new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), clay(0x6fd6ff, 0.15)));
+const drip = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.42, 16), clay(0x6fd6ff, 0.15)); drip.position.z = -0.27; drip.rotation.x = -Math.PI / 2;
+sweat.add(drip); sweat.position.set(1.5, 1.2, -0.7); sweat.visible = false;
+head.add(skull, capMesh, ...eyes, ...brows, ...xEyes, nose, mask, ...blush, sweat);
 scene3.add(head);
+const HEAD_Y = SURFACE - 0.5, HEAD_Z = -13;
+// the head sits off the top of the main view, so a patient cam shows the face close up (rendered into #or-face)
+const faceCam = new THREE.PerspectiveCamera(30, 1.4, 0.1, 60);
+faceCam.position.set(1.2, HEAD_Y + 6.4, HEAD_Z + 4.4);
+faceCam.lookAt(0, HEAD_Y + 1.4, HEAD_Z + 0.75);
+const faceLight = new THREE.PointLight(0xfff4e0, 0.55, 14); faceLight.position.set(0, HEAD_Y + 5, HEAD_Z + 2.5);
+scene3.add(faceLight);
 // arms resting at the sides, chunky and soft
 for (const s of [-1, 1]) {
   const arm = solid(new THREE.CylinderGeometry(0.85, 0.85, 7.5, 24), skinMat, s * 6.6, SURFACE - 1.7, -6.2); arm.rotation.x = Math.PI / 2;
@@ -217,15 +243,24 @@ function animate(t) {
   }
   pulse *= 0.9;
   for (const m of pulsers) m.emissiveIntensity = 0.15 + 0.6 * pulse;
-  const v = vitals(), distress = !pt.lost && (pt.bleed > 15 || pt.stress > 8);
-  const breath = pt.lost ? 0 : Math.sin(t * (v.hr / 60) * 0.9) * 0.06;
-  flinch *= 0.92;
-  head.position.y = SURFACE - 0.5 + breath + 0.18 * flinch * Math.sin(t * 40);
-  head.rotation.z = 0.08 * flinch * Math.sin(t * 33);
-  for (const e of eyes) { e.visible = !pt.lost; e.scale.z = distress ? 0.85 : 0.45; }   // closed slits; wide when in distress
+  const v = vitals(), distress = !pt.lost && (pt.bleed > 15 || pt.stress > 8), critical = !pt.lost && (pt.bleed > 60 || v.sys < 85);
+  // breathing: a slow bob and the mask fogging on each breath, faster as the heart rate climbs
+  const bp = pt.lost ? 0 : Math.sin(t * (v.hr / 60) * 1.4);
+  mask.material.opacity = pt.lost ? 0.3 : 0.32 + 0.38 * Math.max(0, bp);
+  flinch *= 0.93;
+  const f = flinch * Math.sin(t * 38);
+  head.position.y = HEAD_Y + 0.1 * bp + 0.25 * f;
+  head.rotation.z = 0.12 * flinch * Math.sin(t * 31);
+  head.scale.set(1 + 0.1 * f, 1 - 0.1 * f, 1 + 0.1 * f);   // squash and stretch
+  for (const e of eyes) { e.visible = !pt.lost; e.scale.z = critical ? 1.1 : distress ? 0.85 : 0.45; }   // closed slits; wide when hurt
   for (const x of xEyes) x.visible = pt.lost;
-  brows.forEach((b, i) => { b.visible = !pt.lost; b.rotation.y = distress ? (i ? 0.45 : -0.45) : 0; });
-  skinMat.color.setHex(pt.lost ? 0xc7d3e8 : 0xffc9a8);
+  brows.forEach((b, i) => { b.visible = !pt.lost; b.rotation.y = distress || critical ? (i ? 0.5 : -0.5) : 0; });
+  for (const c of blush) c.visible = distress || critical;
+  sweat.visible = critical || (distress && pt.stress > 8);
+  if (sweat.visible) sweat.position.y = 1.2 - 0.18 * ((t * 0.8) % 1);   // the drop slides down
+  skinMat.color.setHex(pt.lost ? 0xc7d3e8 : critical ? 0xffb39a : 0xffc9a8);
+  const mood = pt.lost ? ['FLATLINED', 'dead'] : critical ? ['critical!', 'crit'] : distress ? ['ouch!', 'hurt'] : ['sleeping peacefully', ''];
+  if ($('or-mood').textContent !== mood[0]) { $('or-mood').textContent = mood[0]; $('or-mood').className = mood[1]; }
 }
 const ouch = () => { flinch = 1; };
 
@@ -236,7 +271,23 @@ function resize() {
 addEventListener('resize', resize);
 let open = false;
 (function loop() {
-  if (open) { drawEcg(); animate(performance.now() / 1000); renderer.render(scene3, cam); }
+  if (open) {
+    drawEcg(); animate(performance.now() / 1000);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, innerWidth, innerHeight);
+    renderer.render(scene3, cam);
+    // patient cam: render the face camera into the #or-face frame (inside its border; the frame may be scaled)
+    const r = $('or-face').getBoundingClientRect();
+    if (r.width > 0) {
+      const b = 5 * r.width / $('or-face').offsetWidth;
+      const x = r.left + b, y = innerHeight - r.bottom + b, w = r.width - 2 * b, h = r.height - 2 * b;
+      faceCam.aspect = w / h; faceCam.updateProjectionMatrix();
+      renderer.shadowMap.autoUpdate = false;   // reuse this frame's shadows
+      renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h);
+      renderer.render(scene3, faceCam);
+      renderer.setScissorTest(false); renderer.shadowMap.autoUpdate = true;
+    }
+  }
   requestAnimationFrame(loop);
 })();
 
