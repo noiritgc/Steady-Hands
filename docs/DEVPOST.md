@@ -1,8 +1,7 @@
 # MagTrack OR: Devpost write-up
 
-> Fill in everything marked **[FILL]** before submitting. Don't publish an accuracy number until you've run
-> Setup › Tracking check on the real board; until then the honest line is "accuracy: validation workflow built,
-> measured result pending".
+> Fill in everything marked **[FILL]** before submitting. The accuracy numbers below come from the tracking check
+> on 2026-10-25 (docs/validation/). If you run it again, update them from the new report.
 
 **Tagline:** A surgical-skills trainer that tracks a real instrument with five magnetometers and no camera, scores your hand motion the way skills research does, and coaches you out loud.
 
@@ -54,7 +53,12 @@ Surgical skill is hand skill, and hand skill takes repetition with feedback. Hos
 ## Accomplishments we're proud of
 
 - Tracking a magnet in 3D from five cheap sensors well enough to play a precision game.
-- **[FILL after Tracking check: "Measured accuracy: X mm RMS over N points at H cm (printed grid, ±1 mm placement)".]**
+- **Measured accuracy, with the vertical axis reported honestly.** We measured 9 points on a printed 1:1 grid, with the magnet upright on a 3 cm spacer (centre about 4 cm above the sensors). We re-fitted every point from the raw sensor data and got the same answer to within 0.1 mm.
+  - **Sideways (x/z): 2.8 mm RMS.**
+  - **While held still:** 0.4 mm of jitter.
+  - **Vertical: the weak axis.** It reads about 6 mm low on average, with ±4.9 mm of scatter on top.
+  - **Overall: 8.2 mm RMS in 3D, worst point 12.8 mm.**
+  - **Not covered:** other heights and tilts, and anything finer than the ±1 mm of placing by hand.
 - Motion analytics that track improvement, with tests.
 
 ## What we learned
@@ -67,6 +71,7 @@ Surgical skill is hand skill, and hand skill takes repetition with feedback. Hos
 - Run a validation study against an optical tracker.
 - Build procedure modules with surgical educators.
 - Make the board thinner so it slides under any practice pad.
+- Fix the vertical axis. The measured height drifts about 1 cm from one end of the board to the other, which points to chip gain and position errors that a calibration should remove. We'll check any fix on a fresh set of points, not the ones we tuned on.
 - Run a small study on whether the measures separate novices from experienced trainees.
 
 ## Responsible design

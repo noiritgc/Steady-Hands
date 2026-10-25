@@ -36,7 +36,7 @@
 **1:30–2:00 · Problem and how it's built**
 > "Med students practise suturing at home with zero feedback. [Name] told us [one line]. MagTrack gives them the measures sim labs use, for the cost of a few sensors.
 > Under the hood: a magnetic dipole fit at 19 Hz in the browser, tuned on recorded sessions; motion analytics with SPARC smoothness; Claude turns the numbers into coaching; Cartesia makes it spoken, because your hands and eyes are busy.
-> And we measured our accuracy with a printed grid: [X] mm RMS. Measured, not estimated."
+> And we measured our accuracy on a printed grid: 2.8 mm sideways. Height is our weak axis, and we tell you that instead of hiding it."
 
 ## Live judging (3–5 minutes per table)
 
@@ -50,7 +50,7 @@
 
 ## Likely questions
 
-- **How accurate is it?** Quote the Tracking check: N points, height, RMS, worst. Add that hand placement is ±1 mm and that untested heights and tilts aren't claimed.
+- **How accurate is it?** "Measured on 9 points of a printed grid, about 4 cm up: 2.8 mm RMS sideways and 0.4 mm jitter. Height is the weak axis: about 6 mm low with ±5 mm scatter, so 8 mm RMS in 3D. Every point re-fits from the raw data (docs/validation). We don't claim other heights or tilts." 
 - **Why magnets, not a camera?** No line of sight, so hands and instruments don't block it. It's cheap, works in any light, and reads tilt as well as position.
 - **What about metal instruments?** Steel distorts the field, so use plastic, wooden or 3D-printed instruments. That's why there's a calibrated-instrument mode.
 - **Is the AI making up scores?** No. The game computes every number; Claude only explains them, and is told never to invent measurements or give clinical advice.
