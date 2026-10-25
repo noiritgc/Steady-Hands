@@ -144,7 +144,7 @@ else {
 // A placement is the stretch around a mark where the strongest chip stays well above the background. Every
 // sample in it gets its own magnet fit from all chips with a clear signal (FIT_MIN_UT or 5x their noise), so a
 // small magnet that only lights up the chip under it still gets fitted.
-const zeros = events.filter(e => e.data.event === 'zero_done' && e.data.baseline);
+const zeros = events.filter(e => ['zero_done', 'baseline_update'].includes(e.data.event) && e.data.baseline);   // baseline_update = viewer auto-zero
 const applied = events.filter(e => e.data.event === 'calib_applied');
 const marks = entries.filter(e => e.kind === 'mark');
 const windows = marks.map((e, k) => ({ t: e.t, note: e.text, lo: Math.max(k ? marks[k - 1].t : -Infinity, e.t - 3000), hi: Math.min(k + 1 < marks.length ? marks[k + 1].t : Infinity, e.t + 3000) }));

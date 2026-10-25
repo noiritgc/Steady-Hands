@@ -20,6 +20,8 @@
   #boardmsg { color: var(--muted); font: 12px ui-monospace, monospace; }
   #info.rec { color: #ff9a9a; }
   #warn { color: var(--warn); white-space: pre-line; }
+  .check { pointer-events: auto; color: var(--muted); display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .check input { width: auto; padding: 0; margin: 0; }
   #readout { position: absolute; bottom: 12px; left: 12px; font: 12px ui-monospace, monospace; color: var(--muted); white-space: pre; pointer-events: none; }
   #cal { position: absolute; top: 12px; right: 12px; width: 400px; max-width: calc(100% - 24px); box-sizing: border-box; background: var(--panel); border: 1px solid #333844; border-radius: 8px; padding: 14px 16px; display: none; line-height: 1.45; }
   #cal h3 { margin: 0 0 8px; font-size: 15px; }
@@ -36,6 +38,7 @@
   <div class="row">
     <button id="connect">Connect</button>
     <button id="zero">Zero (remove background)</button>
+    <label class="check" title="Keep the background up to date while no magnet is found"><input id="autozero" type="checkbox" checked> Auto-zero</label>
     <button id="calibrate">Calibrate orientation</button>
     <button id="record">Record</button>
     <input id="note" placeholder="note, e.g. magnet over ch2, N down" disabled>
@@ -80,6 +83,9 @@ const BAD_SAMPLES = 10;    // ignore a chip for this many samples after it clips
 const ZERO_NOISE_MAX_UT = 6;   // noisier than this while zeroing (normally ~2) = a magnet moved nearby
 const STRONG_UT = 5000;    // after a field this strong a chip's zero can shift by ~20 uT
 const LEFTOVER_UT = 15, LEFTOVER_SAMPLES = 100;  // ~5 s of steady field above this on 2+ chips, no magnet found = stale zero
+const AUTO_ZERO_MAX_UT = 100;  // auto-zero: a steady field below this on every chip, with no magnet found, is background
+const AUTO_ZERO_AFTER = 30;    // ... once it has been steady this many samples (~1.5 s)
+const AUTO_ZERO_RATE = 0.05;   // fraction of the difference folded into the baseline per sample (~1 s time constant)
 const FIT_MIN_UT = 10;     // chips above this (or NOISE_MULT x noise) help fit the magnet, even below the arrow threshold
 const MIN_FIT_SENSORS = 3; // chips with a clear signal needed before fitting a magnet
 const FIT_MAX_ERR = 0.35;  // hide the magnet when the model misses the readings by more than this (relative)
@@ -163,7 +169,7 @@ const statusEl = () => $('status');
 
 // --- warnings about the zero (background) going stale ---
 const warnings = { zero: null, strong: null, leftover: null };
-let leftoverCount = 0;
+let leftoverCount = 0, quietCount = 0, autoBuf = [], autoAdjusted = false;
 function setWarning(kind, text) {
   if (warnings[kind] === text) return;
   if (text && !warnings[kind]) log('app', { event: 'warning', kind, text });
@@ -176,11 +182,24 @@ const chipList = is => is.map(i => 'ch' + i).join(', ');
 function checkZero() {
   const bad = sensors.map((_, i) => i).filter(i => sensors[i].noise > ZERO_NOISE_MAX_UT);
   setWarning('zero', bad.length ? `Zeroing was disturbed on ${chipList(bad)} (noise ${bad.map(i => sensors[i].noise.toFixed(0)).join(', ')} µT, normally about 2): a magnet moved nearby. Move magnets at least 50 cm away and click Zero again.` : null);
-  sensors.forEach(s => { s.maxSeen = 0; s.prevField = null; });
+  sensors.forEach(s => { s.maxSeen = 0; });
   setWarning('strong', null); setWarning('leftover', null); leftoverCount = 0;
 }
 
 function startZero() { zeroBuf = []; statusEl().textContent = 'zeroing — keep magnets away…'; log('app', { event: 'zero_start' }); }
+
+// Each chip's noise (rms spread of the samples about their mean) sets its thresholds.
+function setNoise(rows) {
+  sensors.forEach((s, i) => {
+    const ok = rows.filter(r => [0, 1, 2].every(k => !isNaN(r[i * 3 + k])));
+    const mean = [0, 1, 2].map(k => ok.reduce((a, r) => a + r[i * 3 + k], 0) / ok.length);
+    const rms = Math.sqrt(ok.reduce((a, r) => a + [0, 1, 2].reduce((t, k) => t + (r[i * 3 + k] - mean[k]) ** 2, 0), 0) / ok.length);
+    s.noise = rms;
+    s.thresh = isNaN(rms) ? MIN_THRESH_UT : Math.max(MIN_THRESH_UT, NOISE_MULT * rms);
+    s.fitThresh = isNaN(rms) ? FIT_MIN_UT : Math.max(FIT_MIN_UT, NOISE_MULT * rms);
+  });
+  checkZero();
+}
 
 // Average the collected samples into the baseline and set each sensor's threshold from its noise.
 // A sensor that misses some samples is averaged over the ones it has.
@@ -189,16 +208,9 @@ function finishZero() {
     const v = zeroBuf.map(r => r[j]).filter(x => !isNaN(x));
     return v.length >= ZERO_SAMPLES / 4 ? v.reduce((a, x) => a + x, 0) / v.length : NaN;
   });
-  sensors.forEach((s, i) => {
-    const mags = zeroBuf.map(r => Math.hypot(...[0, 1, 2].map(k => r[i * 3 + k] - baseline[i * 3 + k]))).filter(m => !isNaN(m));
-    const rms = Math.sqrt(mags.reduce((a, m) => a + m * m, 0) / mags.length);
-    s.noise = rms;
-    s.thresh = isNaN(rms) ? MIN_THRESH_UT : Math.max(MIN_THRESH_UT, NOISE_MULT * rms);
-    s.fitThresh = isNaN(rms) ? FIT_MIN_UT : Math.max(FIT_MIN_UT, NOISE_MULT * rms);
-  });
+  setNoise(zeroBuf);
   zeroBuf = null;
   smoothed = baseline.slice();
-  checkZero();
   statusEl().textContent = 'ready · thresholds ' + sensors.map(s => s.thresh.toFixed(0)).join('/') + ' µT';
   log('app', { event: 'zero_done', baseline, thresholds: sensors.map(s => s.thresh), noise: sensors.map(s => s.noise) });
 }
@@ -259,6 +271,23 @@ function update(raw) {
   }
   fit = next;
 
+  // Auto-zero: a field that stays steady, is small on every chip and isn't explained by a magnet is background
+  // (Earth's field after the board moved, a chip's zero that shifted, a magnet parked well away). Fold it slowly
+  // into the baseline, and re-measure each chip's noise once it has settled.
+  const quiet = !fit && sensors.every((s, i) => !fields[i] ||
+    (s.prevField && M.norm(M.sub(fields[i], s.prevField)) < 4 && M.norm(fields[i]) < AUTO_ZERO_MAX_UT));
+  quietCount = quiet ? quietCount + 1 : 0;
+  if (quietCount >= AUTO_ZERO_AFTER && $('autozero').checked) {
+    baseline = baseline.map((b, j) => isNaN(raw[j]) ? b : isNaN(b) ? raw[j] : b + AUTO_ZERO_RATE * (raw[j] - b));
+    autoBuf.push(raw);
+    if (autoBuf.length > ZERO_SAMPLES) autoBuf.shift();
+    if (autoBuf.length === ZERO_SAMPLES && quietCount % ZERO_SAMPLES === 0) setNoise(autoBuf);
+    autoAdjusted = true;
+  } else if (!quiet) {
+    if (autoAdjusted) log('app', { event: 'baseline_update', baseline, noise: sensors.map(s => s.noise) });
+    autoBuf = []; autoAdjusted = false;
+  }
+
   // A chip that has seen a very strong field may now read a little off; remind once the magnet is away.
   sensors.forEach((s, i) => { if (fields[i]) s.maxSeen = Math.max(s.maxSeen, M.norm(fields[i])); });
   const strong = sensors.map((_, i) => i).filter(i => sensors[i].maxSeen > STRONG_UT);
@@ -301,8 +330,10 @@ function update(raw) {
     return `ch${i} |ΔB| ${M.norm(f).toFixed(0).padStart(5)} µT  (threshold ${s.thresh.toFixed(0)})${model}`;
   });
   if (fit) lines.push(`magnet at (${fit.pos.map(v => v.toFixed(1)).join(', ')}) cm · north end points ${describeDir(fit.m)} · model error ${(fit.rel * 100).toFixed(0)}%`);
+  else if (autoAdjusted) lines.push('auto-zero: following the background');
   else if (anyOn) lines.push(use.length < MIN_FIT_SENSORS ? `magnet: needs ${MIN_FIT_SENSORS} chips with a clear signal` : 'magnet: readings don\'t fit a single magnet');
   $('readout').textContent = lines.join('\n');
+  dispatchEvent(new CustomEvent('magnet', { detail: { fit, fields } }));   // for controller.js
 }
 
 function handleLine(line) {
@@ -607,5 +638,6 @@ calEl.onclick = e => {
 };
 $('calibrate').onclick = () => calEl.style.display === 'block' && !calib ? calClose() : calOpen();
 </script>
+<script src="controller.js"></script>
 </body>
 </html>

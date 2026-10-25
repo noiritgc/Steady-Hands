@@ -26,6 +26,19 @@ What you see:
 
 On Linux you may need serial-port permission: `sudo usermod -aG dialout $USER`, then log out and back in.
 
+## Controller mode
+
+Click **Controller** to use the magnet as an input device, e.g. a small magnet on a ring or fingertip:
+
+- **Point:** move the magnet over the board, about 1–4 cm above it, and the cursor follows. Choose how the board lies in front of you; with the top of the card to your left, the keyboard's long side runs along the card.
+- **Click:** flip the magnet over (north end up ↔ down). The click lands where the magnet was before the flip. Or tick **Dwell click** and hold still on a key for about a second.
+- **Keyboard:** type on the on-screen keyboard. **Speak** reads the text aloud with the browser's built-in voice.
+- **Target game:** pop as many targets as you can in 45 seconds.
+
+Mouse clicks work too. Key presses and game hits are logged in recordings.
+
+**Auto-zero** (on by default) keeps the background up to date. When no magnet is found and every chip's reading is small and steady for about 1.5 s, it folds the change into the zero. That covers the board being nudged, a chip's zero shifting after a strong field, or a magnet parked well away. A big leftover (over 100 µT) still needs **Zero** with magnets moved away.
+
 ## Calibrating chip orientation
 
 The viewer assumes every chip is mounted the same way. If a breakout is turned or flipped, its arrow points the wrong way. To measure how each chip is really mounted:
@@ -106,6 +119,7 @@ Values are in microtesla, ordered by multiplexer channel; `nan` means that senso
 ## Files
 
 - `viewer.html`: the 3D viewer (Web Serial + three.js), recording, replay and orientation calibration
+- `controller.js`: controller mode (cursor, flip-to-click, keyboard, target game)
 - `magmath.js`: magnet fit, orientation calibration and recording parser, shared by the viewer and `tools/analyze.js`
 - `tools/analyze.js`: command-line report for a recording
 - `firmware/code.py`: CircuitPython firmware
