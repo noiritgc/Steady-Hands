@@ -3,7 +3,7 @@
 // machine (CARTESIA_API_KEY in the environment, or in a git-ignored .env file) and never reaches the browser or repo.
 //   CARTESIA_API_KEY=sk_car_... node server.js      then open http://localhost:8765/viewer.html
 // Optional: CARTESIA_VOICE_ID (default "Clive"), CARTESIA_MODEL (default sonic-3.6), PORT.
-// No dependencies (Node 18+). Listens on 127.0.0.1 only, so nobody else on the network can spend your credits.
+// No dependencies (Node 18+). Listens on this machine only (127.0.0.1 and ::1), so nobody else on the network can spend your credits.
 'use strict';
 const http = require('http');
 const fs = require('fs');
@@ -109,14 +109,20 @@ function send(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
-http.createServer((req, res) => {
+function handle(req, res) {
   const u = new URL(req.url, 'http://localhost');
   if (u.pathname === '/api/tts/status') return send(res, 200, { enabled: !!KEY && !!voice.id, model: MODEL, voice: voice.name || voice.id });
   if (u.pathname === '/api/tts' && req.method === 'GET') return tts(req, res, u.searchParams);
   if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
   serveFile(res, u.pathname);
-}).listen(PORT, '127.0.0.1', async () => {
+}
+// both loopback addresses: browsers may resolve "localhost" to ::1 first and report "connection refused" if only IPv4 listens
+http.createServer(handle).listen(PORT, '127.0.0.1', async () => {
   await chooseVoice();
   console.log(`MagTrack: http://localhost:${PORT}/viewer.html`);
   console.log(KEY ? `Voice: Cartesia ${MODEL}, voice ${voice.name || voice.id}` : 'Voice: off (set CARTESIA_API_KEY in the environment or .env)');
+}).on('error', e => {
+  console.error(e.code === 'EADDRINUSE' ? `Port ${PORT} is already in use: MagTrack may already be running at http://localhost:${PORT}/viewer.html` : e.message);
+  process.exit(1);
 });
+http.createServer(handle).listen(PORT, '::1').on('error', () => {});   // no IPv6 loopback on this machine: IPv4 alone is fine

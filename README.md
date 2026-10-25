@@ -56,7 +56,7 @@ cp .env.example .env          # then put your key in .env: CARTESIA_API_KEY=sk_c
 node server.js                # or: CARTESIA_API_KEY=sk_car_... node server.js
 ```
 
-Open http://localhost:8765/viewer.html. `server.js` (Node 18+, no dependencies) serves the viewer and proxies speech to Cartesia; it listens on 127.0.0.1 only and won't serve dotfiles such as `.env`. Optional settings: `CARTESIA_VOICE_ID` (default: Clive, `b24f41fd-00a3-4cd8-992a-a0c9f13f3ef1`), `CARTESIA_MODEL` (default `sonic-3.6`).
+Open http://localhost:8765/viewer.html. `server.js` (Node 18+, no dependencies) serves the viewer and proxies speech to Cartesia; it listens on this machine only (127.0.0.1 and ::1) and won't serve dotfiles such as `.env`. Optional settings: `CARTESIA_VOICE_ID` (default: Clive, `b24f41fd-00a3-4cd8-992a-a0c9f13f3ef1`), `CARTESIA_MODEL` (default `sonic-3.6`).
 
 **How it works:**
 - The game emits events (step start, too deep, artery hit, …) and `voice.js` also watches live state each tracking sample: distance to the target, hand speed inside the patient, tremor while holding, blood pressure, blood loss, and the clock.
