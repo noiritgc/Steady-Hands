@@ -34,7 +34,7 @@
 - The **AI attending** debrief: one specific fix tied to a number, and the next drill.
 
 **1:30–2:00 · Problem and how it's built**
-> "Med students practise suturing at home with zero feedback. [Name] told us [one line]. MagTrack gives them the measures sim labs use, for the cost of a few sensors.
+> "Med students practise suturing at home with zero feedback. [Name] told us [one line]. Steady Hands gives them the measures sim labs use, for the cost of a few sensors.
 > Under the hood: a magnetic dipole fit at 19 Hz in the browser, tuned on recorded sessions; motion analytics with SPARC smoothness; Claude turns the numbers into coaching; Cartesia makes it spoken, because your hands and eyes are busy.
 > And we measured our accuracy on a printed grid: 2.8 mm sideways. Height is our weak axis, and we tell you that instead of hiding it."
 
