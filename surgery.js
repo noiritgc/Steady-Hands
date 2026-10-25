@@ -10,7 +10,14 @@ const STACK_LEN = 2;          // magnet stack length; the tip is half of it from
 const SURFACE = 2.6;          // tissue surface height (tip height)
 const CUT_TOP = 0.2, CUT_BOTTOM = 0.7;   // cutting band: this far below the surface
 const SAMPLE_DT = 1 / 18.7;   // the board sends ~18.7 samples per second
-const TIP_SMOOTH = 0.45;      // display smoothing of the tip (scoring uses raw positions)
+// tracking filter (One Euro): cutoff in Hz when still, rising with speed (per cm/s, or per unit/s for the axis).
+// Tuned on a recorded game: the axis is noisy and its error is magnified out to the tip and the skin, so it is
+// smoothed hard; the position follows the hand quickly.
+const POS_MIN_CUTOFF = 2, POS_BETA = 1, DIR_MIN_CUTOFF = 0.6, DIR_BETA = 0.05;
+const DROPOUT_HOLD = 5;       // samples (~0.27 s) a lost fit keeps the last pose before the instrument counts as gone
+const JUMP_CM = 2.5;          // a fit this far from the previous one is held back until a second one agrees
+const MAX_REACH = 3;          // cm along the axis from the tip to the skin, at most
+const GLIDE_S = 0.035;        // the drawn instrument eases toward each new sample over about this long
 const LEADER_KEY = 'magtrack.or.leaderboard';
 
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -236,8 +243,19 @@ function setTool(name) {
   for (const k of toolModels[name]) tool.add(k);
   toolName = name; toolPop = 1;   // pops in with a bounce
 }
-const plumb = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(0, 0, 0), V3(0, 1, 0)]), new THREE.LineBasicMaterial({ color: 0xffb000 }));
-scene3.add(plumb);
+// contact marker: a ring on the skin where the instrument's axis meets it (where the blade cuts, or is about to)
+const aimMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthTest: false });
+const aim = new THREE.Group();
+const aimRing = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.045, 8, 32), aimMat); aimRing.rotation.x = Math.PI / 2;
+aim.add(aimRing, new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), aimMat));
+aim.renderOrder = 5; aim.visible = false;
+scene3.add(aim);
+const toolGoal = { pos: V3(0, 0, 0), quat: new THREE.Quaternion(), aim: V3(0, 0, 0), fresh: true };
+function glideTool(dt) {   // ease the drawn instrument toward the latest sample, so 19 Hz tracking looks smooth at 60 fps
+  const k = toolGoal.fresh ? 1 : 1 - Math.exp(-dt / GLIDE_S);
+  tool.position.lerp(toolGoal.pos, k); tool.quaternion.slerp(toolGoal.quat, k); aim.position.lerp(toolGoal.aim, k);
+  toolGoal.fresh = false;
+}
 const procGroup = new THREE.Group(); scene3.add(procGroup);
 
 // --- animation: jelly wobble, heartbeat pulse, breathing, flinches ---
@@ -283,9 +301,12 @@ function resize() {
 }
 addEventListener('resize', resize);
 let open = false;
+let lastDraw = performance.now();
 (function loop() {
+  const now = performance.now(), dt = Math.min(0.1, (now - lastDraw) / 1000);
+  lastDraw = now;
   if (open) {
-    drawEcg(); animate(performance.now() / 1000);
+    drawEcg(); glideTool(dt); animate(now / 1000);
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, innerWidth, innerHeight);
     renderer.render(scene3, cam);
@@ -345,7 +366,7 @@ function ecgShape(p) {   // p = 0..1 through a beat
   return g(0.18, 0.025, 0.12) - g(0.29, 0.008, 0.15) + g(0.31, 0.01, 1) - g(0.34, 0.01, 0.25) + g(0.55, 0.045, 0.3);
 }
 function drawEcg() {
-  const now = performance.now(), dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+  const now = performance.now(), dt = Math.min(0.1, (now - lastDraw) / 1000); lastFrame = now;
   const v = vitals(), cv = $('or-ecg'), g = cv.getContext('2d');
   const steps = Math.max(1, Math.round(dt * 160));
   for (let s = 0; s < steps; s++) {
@@ -368,16 +389,57 @@ function drawEcg() {
 }
 
 // --- instrument tracking ---
-let tip = null, dir = null, raw = [], present = false;   // dir = unit vector from handle to tip
+// Each fit (the stack's middle and its moment) goes through: polarity (which end is the tip, learned from the sign
+// of the moment, so tilting past horizontal can't flip the instrument end for end), a jump check (one wild fit is
+// held back unless the next agrees), a short hold over dropped fits, and a One Euro filter (smooths hard while the
+// hand is still, follows quickly when it moves). The frame loop then glides the drawn instrument between samples.
+// `cut` is where the instrument's axis meets the skin: that is what the blade cuts (and, above the skin, where it is
+// about to), so lines are judged there rather than under the hidden tip, which sits off to one side when tilted.
+let tip = null, dir = null, cut = null, raw = [], present = false;   // dir = unit vector from handle to tip
+let polarity = 0, polVotes = 0, missed = 0, lastPos = null, pendingJump = null;
+function oneEuro(minCut, beta) {   // https://gery.casiez.net/1euro/ ; vectors, fixed sample rate
+  const a = c => 1 / (1 + 1 / (2 * Math.PI * c * SAMPLE_DT));
+  let x = null, dx = null;
+  return {
+    reset() { x = null; },
+    f(v) {
+      if (!x) { x = v.slice(); dx = v.map(() => 0); return x; }
+      dx = dx.map((d, k) => d + a(1) * ((v[k] - x[k]) / SAMPLE_DT - d));
+      const ax = a(minCut + beta * Math.hypot(...dx));
+      return (x = x.map((p, k) => p + ax * (v[k] - p)));
+    },
+  };
+}
+const posFilter = oneEuro(POS_MIN_CUTOFF, POS_BETA), dirFilter = oneEuro(DIR_MIN_CUTOFF, DIR_BETA);
+function contactPoint(p, d, y) {   // where the axis through p crosses height y
+  const t = d[1] < -0.2 ? (y - p[1]) / d[1] : 0;   // held nearly flat: straight down instead
+  const k = Math.max(-MAX_REACH, Math.min(MAX_REACH, t));
+  return [p[0] + d[0] * k, y, p[2] + d[2] * k];
+}
+const aimY = () => (cur && cur.aimY != null ? cur.aimY : SURFACE);   // the tissue the current step works on (skin, or inside)
+function lose() { present = false; posFilter.reset(); dirFilter.reset(); lastPos = pendingJump = null; }
 function onFit(fit) {
-  if (!fit) { present = false; return; }
-  let ax = M.normalize(fit.m);
-  if (ax[1] > 0) ax = M.scale(ax, -1);           // the end pointing down at the board is the tip
-  const t = M.add(fit.pos, M.scale(ax, STACK_LEN / 2));
+  if (!fit) { if (++missed > DROPOUT_HOLD) lose(); return; }   // brief dropouts keep the last pose
+  // a single fit far from the last one is usually a bad solve: wait for a second one nearby before believing it
+  if (lastPos && M.norm(M.sub(fit.pos, lastPos)) > JUMP_CM && !(pendingJump && M.norm(M.sub(fit.pos, pendingJump)) < 1)) {
+    pendingJump = fit.pos; if (++missed > DROPOUT_HOLD) lose(); return;
+  }
+  missed = 0; pendingJump = null; lastPos = fit.pos;
+  const mN = M.normalize(fit.m);
+  if (Math.abs(mN[1]) > 0.5) {   // clearly pointing down or up: vote on which magnetic end is the tip
+    const vote = mN[1] < 0 ? 1 : -1;
+    if (!polarity) polarity = vote;
+    else if (vote !== polarity) { if (++polVotes >= 12) { polarity = vote; polVotes = 0; } }   // stack turned over in the hand
+    else polVotes = 0;
+  }
+  let ax = M.scale(mN, polarity || (mN[1] > 0 ? -1 : 1));
+  if (dir && present && M.dot(ax, dir) < 0 && !polarity) ax = M.scale(ax, -1);
   // tremor uses the stack's middle: the tip moves the same with the hand, but small axis noise is amplified 1 cm out
   raw.push(fit.pos); if (raw.length > 19) raw.shift();   // last ~1 s
-  tip = tip && present ? tip.map((v, k) => v + TIP_SMOOTH * (t[k] - v)) : t;
-  dir = dir && present ? M.normalize(dir.map((v, k) => v + TIP_SMOOTH * (ax[k] - v))) : ax;
+  const mid = posFilter.f(fit.pos);
+  dir = M.normalize(dirFilter.f(ax));
+  tip = M.add(mid, M.scale(dir, STACK_LEN / 2));
+  cut = contactPoint(tip, dir, aimY());
   present = true;
 }
 const tremorMm = () => {   // rms wobble of the raw tip about its 1 s average
@@ -387,16 +449,19 @@ const tremorMm = () => {   // rms wobble of the raw tip about its 1 s average
 };
 const tiltDeg = () => Math.acos(Math.min(1, -dir[1])) * 180 / Math.PI;
 function drawTool() {
-  tool.visible = plumb.visible = present && !!tip;
+  if (!tool.visible) toolGoal.fresh = true;   // reappearing: jump straight there
+  tool.visible = present && !!tip;
   $('or-nohand').textContent = present ? '' : 'Instrument not detected: hold the magnet stack over the board, 1–5 cm up';
-  if (!tool.visible) return;
-  tool.position.set(...tip);
-  tool.quaternion.setFromUnitVectors(V3(0, -1, 0), V3(...dir));
-  plumb.geometry.setFromPoints([V3(tip[0], SURFACE, tip[2]), V3(...tip)]);
-  plumb.visible = tip[1] < SURFACE;
+  if (!tool.visible) { aim.visible = false; return; }
+  toolGoal.pos.set(...tip);
+  toolGoal.quat.setFromUnitVectors(V3(0, -1, 0), V3(...dir));
+  toolGoal.aim.set(cut[0], cut[1] + 0.04, cut[2]);
   // depth gauge: 0.5..5 cm of tip height
   const toPct = y => clamp01((y - 0.5) / 4.5) * 100;
   const band = cur && cur.band;
+  // the marker shows on steps that are aimed at the skin: white above it, green in the cutting band, red too deep
+  aim.visible = !!(cur && (band || cur.aim) && mode === 'play');
+  aimMat.color.setHex(tip[1] >= aimY() ? 0xffffff : band && tip[1] < band[0] ? 0xff4d5e : band && tip[1] > band[1] ? 0xffd166 : 0x4dff88);
   $('or-surf').style.bottom = toPct(SURFACE) + '%';
   $('or-band').style.display = $('or-deep').style.display = band ? 'block' : 'none';
   if (band) {
@@ -475,9 +540,20 @@ function growPool(m, max, step) {
   if (w) w.base.set(r, r * 0.22, r); else m.scale.set(r, r * 0.22, r);
 }
 // the cut: a dark red groove built from small blobs as the blade moves
+const blobGeo = new THREE.SphereGeometry(0.11, 10, 8), blobMat = clay(0x7a0f22, 0.4);
 function cutBlob(p) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), clay(0x7a0f22, 0.4));
+  const m = new THREE.Mesh(blobGeo, blobMat);
   m.scale.set(1, 0.4, 1); m.position.set(p[0], SURFACE + 0.025, p[2]); return m;
+}
+// new groove points from the last blob to p, every 0.08 cm, so a quick stroke leaves a continuous cut, not dots
+function grooveFill(last, p) {
+  if (!last) return [p.slice()];
+  const gap = Math.hypot(p[0] - last[0], p[2] - last[2]);
+  if (gap < 0.08) return [];
+  if (gap > 1.2) return [p.slice()];   // a jump, not a stroke: don't draw a line across
+  const n = Math.ceil(gap / 0.08), out = [];
+  for (let i = 1; i <= n; i++) out.push([last[0] + (p[0] - last[0]) * i / n, SURFACE, last[2] + (p[2] - last[2]) * i / n]);
+  return out;
 }
 
 const PROCS = [
@@ -493,8 +569,8 @@ const PROCS = [
     },
     tick() {
       const cutting = tip[1] < SURFACE - CUT_TOP;
-      if (!cutting) return null;
-      const { d, s } = distToPolyline(tip, this.path, true);
+      if (!cutting) { this.offRun = 0; return null; }
+      const { d, s } = distToPolyline(cut, this.path, true);   // judged where the blade enters the skin
       const tooDeep = tip[1] < SURFACE - CUT_BOTTOM;
       if (tooDeep) {
         pt.bleed = Math.max(pt.bleed, 30);
@@ -502,17 +578,19 @@ const PROCS = [
         if (!this.pool) this.pool = bloodPool(tip, 0.2);
         growPool(this.pool, 1.4, 0.01);
       }
-      if (d > 0.5) {   // cutting off the line
+      this.offRun = d > 0.5 ? (this.offRun || 0) + 1 : 0;
+      if (d > 0.5) {   // cutting off the line (a stray sample or two is forgiven)
+        if (this.offRun < 3) return null;
         pt.bleed = Math.max(pt.bleed, 8);
         if (this.offCount++ % 30 === 0) { say('Off the line', 'bad'); emit('off_line'); }
         return null;
       }
       if (this.progress === 0 && s > 0.06) { say('Start at the green dot', 'info'); emit('start_at_dot'); return null; }
-      if (s >= this.progress - 0.02 && s <= this.progress + 0.08) {
+      if (s >= this.progress - 0.03 && s <= this.progress + 0.1) {
         this.progress = Math.max(this.progress, s);
         this.devs.push(d); this.depths.push(tip[1]);
         const last = this.cutPts[this.cutPts.length - 1];
-        if (!last || Math.hypot(tip[0] - last[0], tip[2] - last[2]) > 0.1) { this.cutPts.push([tip[0], SURFACE, tip[2]]); procGroup.add(cutBlob(tip)); }
+        for (const p of grooveFill(last, cut)) { this.cutPts.push(p); procGroup.add(cutBlob(p)); }
       }
       $('or-obj').textContent = `Incision ${(this.progress * 100).toFixed(0)}% · off the line by ${(d * 10).toFixed(1)} mm`;
       if (this.progress > 0.5 && !this.half) { this.half = true; emit('halfway'); }
@@ -784,10 +862,10 @@ $('or-exit').onclick = close;
 
 // --- for operations.js: building blocks, live state, and registration ---
 window.MagTrackOR = {
-  SURFACE, SAMPLE_DT, V3, clay, solid, blob, tube, wobble, dots, curvePts, distToPolyline, bloodPool, growPool, cutBlob,
+  SURFACE, SAMPLE_DT, V3, clay, solid, blob, tube, wobble, dots, curvePts, distToPolyline, bloodPool, growPool, cutBlob, grooveFill,
   say, alarm, chime, tone, ouch, logEvent, tremorMm, setTool,
   group: procGroup, scene: scene3, skinMat,
-  get tip() { return tip; }, get dir() { return dir; }, get pt() { return pt; }, get sample() { return sample; },
+  get tip() { return tip; }, get dir() { return dir; }, get cut() { return cut; }, get pt() { return pt; }, get sample() { return sample; },
   setObjective(text) { $('or-obj').textContent = text; },
   registerTool(name, meshes) { toolModels[name] = meshes; },
   onFrame(fn) { frameHooks.push(fn); },

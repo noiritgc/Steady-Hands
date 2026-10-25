@@ -173,29 +173,30 @@ function bandage(x, z, len, along) {   // a cheerful bandage over the closed inc
 // --- mechanics: each returns a step { name, tool, band?, init(), tick() -> done?, hint(), result() -> {detail, points}, after() } ---
 const POINTS = 150;   // per step
 
-function cutStep(o) {   // trace o.line (xz) with the tip between o.band heights, from its first point
-  let progress = 0, devs = [], deep = 0, off = 0, last = null;
+function cutStep(o) {   // trace o.line (xz) where the blade enters the skin, tip between o.band heights, from its first point
+  let progress = 0, devs = [], deep = 0, off = 0, offRun = 0, last = null;
   const groove = [];   // the cut marks, cleared when the skin opens
   return {
-    name: o.name, tool: o.tool || 'scalpel', band: o.band,
+    name: o.name, tool: o.tool || 'scalpel', band: o.band, aimY: o.markY ?? SURFACE,
     init() {
       if (o.dots !== false) groove.push(dotsAt(o.line, o.markY ?? SURFACE + 0.03, 0x7e57c2));
       const s = solid(new THREE.SphereGeometry(0.28, 20, 12), clay(0x2ecc71, 0.5), o.line[0][0], (o.markY ?? SURFACE + 0.03) + 0.02, o.line[0][2]);
       s.scale.y = 0.35; this.start = add(wobble(s, 0.12, 4));
     },
     tick() {
-      const tip = OR.tip;
-      if (tip[1] > o.band[1]) return false;
-      const { d, s } = distToPolyline(tip, o.line, true);
+      const tip = OR.tip, c = OR.cut;
+      if (tip[1] > o.band[1]) { offRun = 0; return false; }
+      const { d, s } = distToPolyline(c, o.line, true);
       if (tip[1] < o.band[0]) {
         OR.pt.bleed = Math.max(OR.pt.bleed, o.deepBleed ?? 25);
         if (deep++ % 25 === 0) { OR.say(o.deepMsg || 'TOO DEEP!', 'bad'); OR.alarm(); OR.ouch(); OR.emit(o.deepEvent || 'too_deep'); }
       }
-      if (d > 0.5) { if (off++ % 30 === 0) { OR.say('Stay on the line', 'bad'); OR.emit('off_line'); } return false; }
+      offRun = d > 0.5 ? offRun + 1 : 0;
+      if (d > 0.5) { if (offRun >= 3 && off++ % 30 === 0) { OR.say('Stay on the line', 'bad'); OR.emit('off_line'); } return false; }   // a stray sample is forgiven
       if (progress === 0 && s > 0.08) { OR.say('Start at the green dot', 'info'); OR.emit('start_at_dot'); return false; }
-      if (s >= progress - 0.02 && s <= progress + 0.1) {
+      if (s >= progress - 0.03 && s <= progress + 0.12) {
         progress = Math.max(progress, s); devs.push(d);
-        if (o.groove !== false && (!last || xzDist(tip, last) > 0.1)) { last = tip.slice(); groove.push(add(OR.cutBlob(tip))); }
+        if (o.groove !== false) for (const p of OR.grooveFill(last, c)) { last = p; groove.push(add(OR.cutBlob(p))); }
       }
       return progress > 0.95;
     },
@@ -216,10 +217,10 @@ function sawStep(o) {   // saw back and forth along o.line inside o.band until o
   let travel = 0, lastS = null, nicks = 0, gap = 0, crack = 0;
   const len = o.line.slice(1).reduce((a, p, i) => a + xzDist(p, o.line[i]), 0);
   return {
-    name: o.name, tool: 'saw', band: o.band,
+    name: o.name, tool: 'saw', band: o.band, aimY: o.markY,
     init() { dotsAt(o.line, o.markY, 0xff9f43); },
     tick() {
-      const tip = OR.tip, { d, s } = distToPolyline(tip, o.line, true);
+      const tip = OR.tip, c = OR.cut, { d, s } = distToPolyline(c, o.line, true);
       if (tip[1] < o.band[0] - 0.1) {
         OR.pt.bleed = Math.max(OR.pt.bleed, 70);
         if (gap <= 0) { nicks++; gap = 20; OR.say(o.deepMsg || 'Too deep!', 'bad'); OR.alarm(); OR.ouch(); OR.emit('saw_nick'); }
@@ -228,7 +229,7 @@ function sawStep(o) {   // saw back and forth along o.line inside o.band until o
       if (tip[1] > o.band[1] || d > 0.6) { lastS = null; return false; }
       if (lastS !== null) travel += Math.abs(s - lastS) * len;
       lastS = s;
-      if (OR.sample % 2 === 0) { spark([tip[0], o.markY + 0.05, tip[2]], 0xfffbe8); OR.tone(rand(130, 190), 60, 'sawtooth', 0.04); }
+      if (OR.sample % 2 === 0) { spark([c[0], o.markY + 0.05, c[2]], 0xfffbe8); OR.tone(rand(130, 190), 60, 'sawtooth', 0.04); }
       OR.emit('sawing', { pct: Math.round(100 * clamp01(travel / o.need)) });
       const f = clamp01(travel / o.need);   // the crack grows along the bone with progress
       while (crack < f * o.line.length - 1) {
@@ -380,13 +381,13 @@ function stitchStep(o) {   // dip the needle into each zig-zag point in order (l
   const tmat = clay(0x7e57c2, 0.45);
   const place = () => { if (mark) OR.group.remove(mark); mark = k < o.points.length ? ring([o.points[k][0], SURFACE + 0.05, o.points[k][1]], 0xff7aa8) : null; };
   return {
-    name: o.name, tool: 'needle',
+    name: o.name, tool: 'needle', aim: true,
     init() { t0 = OR.sample; if (o.before) o.before(); place(); },
     tick() {
-      const tip = OR.tip, p = o.points[k];
-      OR.setTarget(Math.hypot(tip[0] - p[0], tip[2] - p[1]), 'stitch point');
+      const tip = OR.tip, c = OR.cut, p = o.points[k], dp = Math.hypot(c[0] - p[0], c[2] - p[1]);   // where the needle meets the skin
+      OR.setTarget(dp, 'stitch point');
       if (tip[1] > SURFACE + 0.15) up = true;
-      if (up && tip[1] < SURFACE && Math.hypot(tip[0] - p[0], tip[2] - p[1]) < 0.45) {   // touching the skin is enough
+      if (up && tip[1] < SURFACE && dp < 0.45) {   // touching the skin is enough
         const here = V3(p[0], SURFACE + 0.07, p[1]);
         if (prev) add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(prev, here), 4, 0.045, 8), tmat));
         add(solid(new THREE.SphereGeometry(0.08, 10, 8), tmat, here.x, here.y, here.z));
@@ -408,6 +409,8 @@ function operation(def) {
     id: def.id, title: def.title, limit: def.limit, op: true, tool: 'scalpel',
     objective: def.blurb + ' Steps: ' + def.stepNames.map((n, i) => `${i + 1}. ${n}`).join(' · '),
     get band() { const s = this.steps && this.steps[this.si]; return (s && s.band) || null; },
+    get aim() { const s = this.steps && this.steps[this.si]; return !!(s && s.aim); },
+    get aimY() { const s = this.steps && this.steps[this.si]; return s ? s.aimY : null; },
     setup() {
       particles.length = 0;
       OR.onFrame(updateParticles);

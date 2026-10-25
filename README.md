@@ -43,6 +43,8 @@ Mouse clicks work too. Key presses and game hits are logged in recordings.
 
 Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour removal, biopsy) teach the controls with an x-ray view, then **Operations** (appendectomy, heart transplant) are multi-step cartoon surgeries where the instrument changes each step: scalpel, bone saw, retractor, clamp, forceps, hands, needle.
 
+Cuts, saw strokes and stitches are judged where the instrument's axis meets the tissue, not at the hidden tip, so tilting the instrument (most people hold it about 45° over) doesn't pull the cut off the line. A ring on the skin shows that point: white above the skin, green in the cutting band, yellow too shallow, red too deep. Tracking is smoothed with a One Euro filter (steady when you hold still, quick when you move), short dropouts and single bad fits are ignored, and the instrument is drawn smoothly between the ~19 samples a second.
+
 **🩺 AI attending** (bottom left in the game): after each procedure, Claude (`claude-sonnet-5-5`) reads the game's measurements (points per step, mm off the line, tremor, angle error, blood loss, vessel hits) and your recent attempts, and returns a short debrief: what went well, the one thing to fix (tied to a measured number), and which drill to do next. The game keeps the score; Claude only explains it. It needs internet and an Anthropic API key, which you paste in the game: the key stays in that browser's localStorage and is sent only to Anthropic (the official SDK is loaded from jsdelivr, pinned). Don't enter a key on a shared computer, and don't host the page publicly with a key in it. Debriefs are logged in recordings (`or_debrief`) so you can measure progress.
 
 ## Voice: Riley, the AI surgical assistant (Cartesia)
