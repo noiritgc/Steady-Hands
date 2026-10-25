@@ -7,7 +7,7 @@
 'use strict';
 const OR = window.MagTrackOR;
 if (!OR) return;
-const MODEL = 'claude-opus-5-5';
+const MODEL = 'claude-sonnet-5-5';   // Sonnet: plenty for a short debrief, and easier on API credits than Opus
 const SDK_URL = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.133.0/+esm';
 const KEY_STORE = 'magtrack.anthropicKey';
 // Who the trainee is: the debrief's tone and level follow this. Adjust it to the community you're building for.
