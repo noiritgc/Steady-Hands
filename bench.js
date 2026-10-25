@@ -13,6 +13,9 @@ const GRID = [[-2, -3], [0, -3], [2, -3], [-2, 0], [0, 0], [2, 0], [-2, 3], [0, 
 const CHIPS = typeof SENSOR_POS !== 'undefined' ? SENSOR_POS : [[-1.7, -3.4], [1.7, -3.4], [0, 0], [-1.7, 3.4], [1.7, 3.4]];
 const VAL_KEY = 'magtrack.or.validation', SETUP_KEY = 'magtrack.or.validationSetup';
 const HOLD_S = 1.5, STEADY_CM = 0.1, MOVE_ON_CM = 1;   // capture after 1.5 s within 1 mm; next point needs 1 cm of movement
+// auto-record only on the right cross, upright: the known position assumes both (a first run recorded a magnet
+// hovering over the wrong cross, and stacks tilted 30 degrees). Anything else needs Space, so it can't slip in.
+const AUTO_RADIUS_CM = 2, AUTO_TILT_DEG = 12;
 const PIVOT_S = 10;
 const SAMPLE_DT = OR.SAMPLE_DT;
 const esc = x => String(x).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
@@ -88,7 +91,7 @@ function validateSetup() {
     with the chip marks over the chips, and tape it down. Keep phones, tools and metal away.</p>
     <label>What goes on each cross</label><select id="val-what"><option value="magnet"${s.what === 'magnet' ? ' selected' : ''}>The bare magnet stack, standing upright (measures its centre)</option>
       <option value="tip"${s.what === 'tip' ? ' selected' : ''}>The instrument's tip, held upright (${esc(ins.name)}, tip offset ${mm(ins.offset)} mm)</option></select>
-    <label>Spacer height (cm): a non-metal block under the magnet or tip, so it sits in range; measure it with a ruler</label><input id="val-spacer" type="number" step="0.05" min="0" value="${s.spacer}">
+    <label>Spacer height (cm): a flat non-metal block about 2 cm tall (a stack of sticky notes, a small box) under the magnet, so it sits where the game is played; measure it with a ruler</label><input id="val-spacer" type="number" step="0.05" min="0" value="${s.spacer}">
     <label>Paper above the chips' sensing plane (cm): chip top to sensor plus the paper, about 0.15</label><input id="val-paper" type="number" step="0.01" min="0" value="${s.paper}">
     <p>For each of the 9 crosses: put the spacer on the cross, stand the magnet (or the tip) on it, upright, and let go or hold it still.
     It records automatically after ${HOLD_S} s steady; <b>Space</b> records now, <b>S</b> skips a point. Lift it at least 1 cm between points.</p>
@@ -109,15 +112,26 @@ function known(k) {
   const [x, z] = GRID[k], b = bench;
   return [x, b.paper + b.spacer + (b.what === 'magnet' ? OR.STACK_LEN / 2 : 0), z];
 }
+const tiltOf = ax => M.angleDeg(ax, [0, -1, 0]);
+const sideways = (p, kn) => Math.hypot(p[0] - kn[0], p[2] - kn[2]);
+function onTarget(live) { return live && sideways(live.p, known(bench.k)) <= AUTO_RADIUS_CM && tiltOf(live.ax) <= AUTO_TILT_DEG; }
+function hint(live, kn) {   // what's stopping auto-record, in words
+  if (!live) return '';
+  const side = sideways(live.p, kn), dy = live.p[1] - kn[1], tilt = tiltOf(live.ax);
+  if (side > AUTO_RADIUS_CM) return `That's ${(side).toFixed(1)} cm from cross ${bench.k + 1}: move onto it.`;
+  if (tilt > AUTO_TILT_DEG) return `Tilted ${tilt.toFixed(0)}°: stand it upright on the spacer (the known position assumes upright).`;
+  if (Math.abs(dy) > 1) return `The reading is ${Math.abs(dy).toFixed(1)} cm ${dy < 0 ? 'lower' : 'higher'} than spacer + paper${bench.what === 'magnet' ? ' + half the stack' : ''}. Is it standing on the spacer, and is the spacer height right? (Recording anyway: it counts as error.)`;
+  return '';
+}
 function renderValidate(live) {
   const b = bench, k = b.k, kn = known(k);
-  const d = live && M.norm(M.sub(live.p, kn));
-  const steady = steadyFor();
+  const steady = steadyFor(), why = hint(live, kn);
   OR.card(`<div class="bench"><h1>🎯 Point ${k + 1} of ${GRID.length}</h1>
     <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">${mapSvg(k, live && live.p, b.done)}
     <div><p>Put the ${b.what === 'magnet' ? 'magnet stack' : 'instrument tip'} on <b>cross ${k + 1}</b> (x ${GRID[k][0]}, z ${GRID[k][1]} cm), on the ${b.spacer} cm spacer.</p>
-    <div class="live">${live ? `reading (${live.p.map(v => v.toFixed(2)).join(', ')}) cm<br>${mm(d)} mm from the cross` : 'no magnet detected'}</div>
-    ${b.armed ? `<div class="bar"><i style="width:${Math.min(100, 100 * steady / HOLD_S)}%"></i></div>` : '<p class="warn">Lift and move to the next cross</p>'}
+    <div class="live">${live ? `reading (${live.p.map(v => v.toFixed(2)).join(', ')}) cm<br>sideways ${mm(sideways(live.p, kn))} mm · height ${live.p[1] >= kn[1] ? '+' : ''}${mm(live.p[1] - kn[1])} mm · tilt ${tiltOf(live.ax).toFixed(0)}°` : 'no magnet detected'}</div>
+    ${why ? `<p class="warn">${esc(why)}</p>` : ''}
+    ${b.armed ? `<div class="bar"><i style="width:${onTarget(live) ? Math.min(100, 100 * steady / HOLD_S) : 0}%"></i></div>` : '<p class="warn">Lift and move to the next cross</p>'}
     <p>${b.points.length} recorded, ${k - b.points.length} skipped</p></div></div>
     <button data-go="val-capture">Record now (Space)</button><button data-go="val-skip">Skip (S)</button>
     <button data-go="val-finish">Finish</button><button data-go="menu">Cancel</button></div>`);
@@ -178,10 +192,11 @@ function validateFinish() {
       <tr><td>Horizontal / vertical RMS</td><td>${mm(s.horizRms)} / ${mm(s.vertRms)} mm</td></tr>
       <tr><td>Systematic offset (x, y, z)</td><td>${s.bias.map(mm).join(', ')} mm</td></tr>
       <tr><td>Precision (jitter while still)</td><td>${s.precision == null ? '—' : mm(s.precision) + ' mm'}</td></tr></table></div>
-    <table><tr><td>cross</td><td>known (cm)</td><td>error</td></tr>${b.points.map(p => `<tr><td>${p.k}</td><td>${p.known.map(v => v.toFixed(1)).join(', ')}</td><td>${mm(MM.validationStats([p]).meanErr)} mm</td></tr>`).join('')}</table>
+    <table><tr><td>cross</td><td>known (cm)</td><td>tilt</td><td>error</td></tr>${b.points.map(p => `<tr><td>${p.k}${p.manual ? ' (manual)' : ''}</td><td>${p.known.map(v => v.toFixed(1)).join(', ')}</td><td>${p.tiltDeg.toFixed(0)}°</td><td>${mm(MM.validationStats([p]).meanErr)} mm</td></tr>`).join('')}</table>
     <div class="estimate"><b class="tag">NOT MEASURED / ESTIMATES</b><ul>
       <li>Only these ${s.n} points at ${heights.join(', ')} cm were measured. Accuracy at other heights, positions or tilts is not covered by this check.</li>
       <li>Placing by hand on a printed cross is good to about ±1 mm, so errors below ~1 mm can't be told apart from placement.</li>
+      <li>Points record automatically only within ${AUTO_RADIUS_CM} cm of the cross and ${AUTO_TILT_DEG}° of upright; a reading further off than that would never auto-record and had to be recorded by hand (marked manual).</li>
       <li>Model fit residual averaged ${(relMean * 100).toFixed(0)}%: how well the readings fit a magnet model. It is an estimate of fit quality, not an accuracy measurement.</li>
       ${b.what === 'tip' ? `<li>The tip offset (${mm(b.offset)} mm) came from ${esc(OR.instrument.source)}; tip error includes any error in it.</li>` : ''}</ul></div>
     <p>Logged in the recording (if one is running) as or_validation_point events; re-fit from the raw data with <code>node tools/analyze.js &lt;recording&gt; --validate</code>.</p>
@@ -271,7 +286,7 @@ addEventListener('magnet', () => {
     bench.buf.push(live || null);
     if (bench.buf.length > 200) bench.buf.shift();
     if (!bench.armed && (!live || M.norm(M.sub(live.p, bench.lastCap)) > MOVE_ON_CM)) { bench.armed = true; bench.buf = []; }
-    if (bench.armed && live && steadyFor() >= HOLD_S) capture(false);
+    if (bench.armed && onTarget(live) && steadyFor() >= HOLD_S) capture(false);
     else if (OR.sample % 3 === 0) renderValidate(live);
   } else if (bench.kind === 'pivot' && !bench.result) {
     if (raw) bench.samples.push({ p: raw.pos, d: raw.ax });
