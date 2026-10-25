@@ -20,6 +20,10 @@
   #boardmsg { color: var(--muted); font: 12px ui-monospace, monospace; }
   #info.rec { color: #ff9a9a; }
   #warn { color: var(--warn); white-space: pre-line; }
+  #connect::before { content: '●'; margin-right: 7px; color: #5a5f6b; }
+  #connect[data-state="live"]::before { color: #3fcf6e; }
+  #connect[data-state="connecting"]::before, #connect[data-state="lost"]::before { color: var(--warn); animation: pulse 1s steps(1) infinite; }
+  @keyframes pulse { 50% { opacity: 0.2; } }
   .check { pointer-events: auto; color: var(--muted); display: flex; gap: 6px; align-items: center; cursor: pointer; }
   .check input { width: auto; padding: 0; margin: 0; }
   #readout { position: absolute; bottom: 12px; left: 12px; font: 12px ui-monospace, monospace; color: var(--muted); white-space: pre; pointer-events: none; }
@@ -345,42 +349,112 @@ function handleLine(line) {
 }
 
 // --- serial ---
-let port = null, reader = null;
+// Once the board has been picked, the viewer keeps it connected: it reopens it when the page loads, when it's
+// plugged back in, after the computer sleeps, and when it goes silent. Only Disconnect stops that.
+const PORT_KEY = 'magtrack.port';
+const STALL_MS = 4000;    // no data for this long: nudge the board (Ctrl-D restarts its program), then reopen
+const RETRY_MS = 2000;
+let port = null, reader = null, wantConnected = false, opening = false, retryTimer = 0, wakeLock = null;
+const scheduleRetry = (ms = RETRY_MS) => { clearTimeout(retryTimer); retryTimer = setTimeout(tryReconnect, ms); };
 
-async function connect() {
-  const status = statusEl();
-  if (!('serial' in navigator)) { status.textContent = 'Web Serial not supported — use Chrome or Edge'; return; }
+function setConn(state, text) {   // off | connecting | live | lost
+  $('connect').dataset.state = state;
+  $('connect').textContent = state === 'off' ? 'Connect' : 'Disconnect';
+  if (text) statusEl().textContent = text;
+}
+
+// The port the user picked before (Chrome remembers the permission), else the only one allowed.
+async function grantedPort() {
+  const ports = await navigator.serial.getPorts();
+  let want = null;
+  try { want = JSON.parse(localStorage.getItem(PORT_KEY)); } catch (e) {}
+  const same = p => want && p.getInfo().usbVendorId === want.usbVendorId && p.getInfo().usbProductId === want.usbProductId;
+  return ports.find(same) || (ports.length === 1 ? ports[0] : null);
+}
+
+async function connectClicked() {
+  if (!('serial' in navigator)) { statusEl().textContent = 'Web Serial not supported — use Chrome or Edge'; return; }
   if (replay) stopReplay();
+  let p;
+  try { p = await navigator.serial.requestPort(); } catch (e) { statusEl().textContent = 'no port chosen'; return; }
+  try { localStorage.setItem(PORT_KEY, JSON.stringify(p.getInfo())); } catch (e) {}
+  wantConnected = true;
+  if (!(await openPort(p, false)) && wantConnected) scheduleRetry();
+}
+
+function disconnectClicked() {
+  wantConnected = false;
+  clearTimeout(retryTimer);
+  if (wakeLock) wakeLock.release();
+  if (reader) reader.cancel(); else setConn('off', 'disconnected');
+}
+
+async function tryReconnect() {
+  clearTimeout(retryTimer);
+  if (!wantConnected || port || opening || replay || !('serial' in navigator)) return;
+  const p = await grantedPort();
+  if (!p) setConn('lost', 'board not found — plug it in; reconnecting…');
+  if (!(p && await openPort(p, true)) && wantConnected) scheduleRetry();
+}
+
+// Keep the screen (and so the computer) awake while connected, so it doesn't sleep mid-demo.
+async function keepAwake() {
+  if (!('wakeLock' in navigator) || wakeLock || document.visibilityState !== 'visible') return;
   try {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 115200 });
-    await port.setSignals({ dataTerminalReady: true });   // CircuitPython only sends when DTR is set
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (e) {}
+}
+
+// Open the port and start reading; true if it opened. Retries are scheduled by the callers and readLoop.
+async function openPort(p, auto) {
+  setConn('connecting', auto ? 'reconnecting to the board…' : 'connecting…');
+  opening = true;
+  try {
+    await p.open({ baudRate: 115200 });
+    await p.setSignals({ dataTerminalReady: true });   // CircuitPython only sends when DTR is set
   } catch (e) {
-    status.textContent = 'error: ' + e.message;
-    if (port) { try { await port.close(); } catch (e2) {} }
-    port = null; return;
-  }
-  $('connect').textContent = 'Disconnect';
-  log('app', { event: 'connected', info: port.getInfo ? port.getInfo() : {} });
-  baseline = null;
-  startZero();
+    try { await p.close(); } catch (e2) {}
+    setConn(wantConnected ? 'lost' : 'off', /already open|failed to open/i.test(e.message)
+      ? 'the board is in use by another tab or app — close it; retrying…' : 'error: ' + e.message);
+    return false;
+  } finally { opening = false; }
+  port = p;
+  setConn('live', auto ? 'reconnected' : 'connected');
+  keepAwake();
+  log('app', { event: 'connected', auto, info: p.getInfo() });
+  if (!auto || !baseline) { baseline = null; startZero(); }   // a reconnect keeps the zero; auto-zero handles drift
+  readLoop(p);
+  return true;
+}
+
+async function readLoop(p) {
+  const status = statusEl();
   const decoder = new TextDecoderStream();
-  const piped = port.readable.pipeTo(decoder.writable).catch(() => {});
+  const piped = p.readable.pipeTo(decoder.writable).catch(() => {});
   reader = decoder.readable.getReader();
-  let buf = '', lineCount = 0, lastLine = '';
-  const watchdog = setInterval(() => {   // diagnose a silent board while zeroing
-    if (zeroBuf && zeroBuf.length === 0)
+  let buf = '', lineCount = 0, lastLine = '', lastData = performance.now(), nudged = false, reason = 'closed';
+  const watchdog = setInterval(async () => {
+    if (zeroBuf && zeroBuf.length === 0)   // diagnose a silent board while zeroing
       status.textContent = `waiting for data — ${lineCount} lines received` + (lastLine ? `, last: "${lastLine.slice(0, 60)}"` : '');
+    if (performance.now() - lastData < STALL_MS) return;
+    if (!nudged) {   // silent: restart the board's program once
+      nudged = true; lastData = performance.now();
+      try { const w = p.writable.getWriter(); await w.write(new Uint8Array([4])); w.releaseLock(); } catch (e) {}
+      setConn('connecting', 'board went silent — restarting it…');
+    } else { reason = 'silent'; reader.cancel(); }   // still silent (e.g. a dead connection after sleep): reopen
   }, 1000);
   try {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
+      lastData = performance.now();
+      if (nudged) { nudged = false; setConn('live', 'connected'); }
       buf += value;
       const lines = buf.split('\n'); buf = lines.pop();
       lineCount += lines.length;
       if (/Code done running|Press any key to enter the REPL/.test(value)) {   // board's program stopped: Ctrl-D restarts it
-        const w = port.writable.getWriter(); await w.write(new Uint8Array([4])); w.releaseLock();
+        const w = p.writable.getWriter(); await w.write(new Uint8Array([4])); w.releaseLock();
       }
       for (const l of lines) {   // every line is recorded and processed, not just the newest
         const line = l.trim();
@@ -390,17 +464,27 @@ async function connect() {
         handleLine(line);
       }
     }
-  } catch (e) { status.textContent = 'connection lost: ' + e.message; }
+  } catch (e) { reason = e.message; }
   clearInterval(watchdog);
   try { reader.releaseLock(); } catch (e) {}
   await piped;
-  try { await port.close(); } catch (e) {}
-  log('app', { event: 'disconnected' });
+  try { await p.close(); } catch (e) {}
+  log('app', { event: 'disconnected', reason });
   port = reader = null;
-  $('connect').textContent = 'Connect';
+  if (wantConnected) { setConn('lost', `connection lost (${reason}) — reconnecting…`); scheduleRetry(500); }
+  else setConn('off', 'disconnected');
 }
 
-$('connect').onclick = () => port ? reader && reader.cancel() : connect();
+$('connect').onclick = () => wantConnected ? disconnectClicked() : connectClicked();
+if ('serial' in navigator) {
+  navigator.serial.addEventListener('connect', () => tryReconnect());   // plugged (back) in
+  grantedPort().then(p => { if (p) { wantConnected = true; tryReconnect(); } });   // reconnect on page load
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (port) keepAwake();
+  tryReconnect();
+});
 $('zero').onclick = startZero;
 
 // --- recording: every line from the board plus viewer events, so a session can be re-analysed later ---
@@ -639,5 +723,6 @@ calEl.onclick = e => {
 $('calibrate').onclick = () => calEl.style.display === 'block' && !calib ? calClose() : calOpen();
 </script>
 <script src="controller.js"></script>
+<script src="guide.js"></script>
 </body>
 </html>
