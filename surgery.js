@@ -20,41 +20,58 @@ const logEvent = d => { if (typeof log === 'function') log('app', d); };
 // --- page ---
 const css = document.createElement('style');
 css.textContent = `
-  #or { position: fixed; inset: 0; z-index: 20; display: none; background: #0b0d10; color: #e6e8ec; font-family: system-ui, sans-serif; }
+  /* chunky toy look: thick ink outlines, offset "sticker" shadows, rounded type */
+  #or { --ink: #2b2540; --paper: #fffdf7; position: fixed; inset: 0; z-index: 20; display: none; background: #bfe3ef; color: var(--ink);
+        font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif; }
   #or canvas.view { position: absolute; inset: 0; }
-  #or .top { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; }
-  #or .top h2 { margin: 0; font-size: 26px; letter-spacing: .5px; }
-  #or .top .obj { color: #b9c0cc; font-size: 16px; margin-top: 4px; }
-  #or .timer { font: 700 22px ui-monospace, monospace; margin-top: 4px; }
-  #or .monitor { position: absolute; top: 12px; right: 12px; width: 280px; background: #000; border: 2px solid #2b3038; border-radius: 10px; padding: 10px 12px; }
-  #or .monitor canvas { width: 100%; height: 70px; display: block; }
-  #or .vit { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin-top: 6px; font: 700 26px ui-monospace, monospace; }
-  #or .vit span { display: block; font: 600 11px system-ui; color: #8a909c; letter-spacing: .5px; }
-  #or .hr { color: #45e07a; } #or .bp { color: #ff6b6b; } #or .spo2 { color: #4dc9ff; } #or .loss { color: #ffb547; }
-  #or .monitor.alarm { border-color: #ff3b3b; animation: orblink .5s steps(1) infinite; }
-  @keyframes orblink { 50% { border-color: #2b3038; } }
-  #or .gauge { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); width: 110px; background: #000c; padding: 10px 14px; border-radius: 10px; }
-  #or .bar { position: relative; height: 260px; width: 34px; background: #1a1d24; border: 1px solid #333844; border-radius: 6px; margin: 6px 0 10px; }
-  #or .band { position: absolute; left: 0; right: 0; background: #2f7d4f; }
-  #or .deep { position: absolute; left: 0; right: 0; bottom: 0; background: #6b2222; }
-  #or .surf { position: absolute; left: -6px; right: -6px; height: 2px; background: #e6e8ec; }
-  #or .tipmark { position: absolute; left: -10px; width: 54px; height: 4px; margin-top: -2px; background: #ffd34d; border-radius: 2px; }
-  #or .gauge .lbl { color: #8a909c; font-size: 12px; }
-  #or .gauge b { font: 700 18px ui-monospace, monospace; display: block; }
-  #or .msg { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); font: 800 40px system-ui; text-shadow: 0 2px 12px #000;
-             pointer-events: none; text-align: center; white-space: nowrap; }
-  #or .msg.bad { color: #ff5a5a; } #or .msg.good { color: #5fd38d; } #or .msg.info { color: #ffd34d; }
+  #or .top { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; }
+  #or .top h2 { margin: 0; font: 900 32px ui-rounded, system-ui; color: #fff; text-shadow: 0 4px 0 var(--ink), 0 0 3px var(--ink), 0 0 3px var(--ink); }
+  #or .top .obj, #or .timer { display: inline-block; max-width: 62vw; margin-top: 8px; padding: 6px 16px; border-radius: 999px; background: var(--paper);
+        border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink); font-weight: 700; font-size: 16px; }
+  #or .timer { display: block; width: max-content; margin: 8px auto 0; font: 800 20px ui-rounded, system-ui; }
+  #or .monitor { position: absolute; top: 14px; right: 14px; width: 270px; background: #1d1b2e; border: 5px solid var(--ink); outline: 6px solid #f4f1ff;
+        border-radius: 24px; padding: 10px 14px 12px; box-shadow: 0 12px 0 var(--ink); }
+  #or .monitor canvas { width: 100%; height: 66px; display: block; border-radius: 10px; }
+  #or .vit { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin-top: 6px; font: 900 28px ui-rounded, system-ui; }
+  #or .vit i { font-style: normal; }
+  #or .vit span { display: block; font: 800 11px ui-rounded, system-ui; color: #9b95b8; letter-spacing: .6px; }
+  #or .hr { color: #5ef08f; } #or .bp { color: #ff7a8a; } #or .spo2 { color: #6fd6ff; } #or .loss { color: #ffc24d; }
+  #or .monitor.alarm { animation: orblink .5s steps(1) infinite; }
+  @keyframes orblink { 50% { outline-color: #ff5a6e; } }
+  #or .gauge { position: absolute; left: 18px; top: 52%; transform: translateY(-50%); width: 112px; background: var(--paper); padding: 12px 14px;
+        border: 4px solid var(--ink); border-radius: 22px; box-shadow: 0 8px 0 var(--ink); }
+  #or .bar { position: relative; height: 240px; width: 40px; margin: 8px 0 12px 10px; background: #e9e5f7; border: 3px solid var(--ink); border-radius: 16px; }
+  #or .band { position: absolute; left: 0; right: 0; background: #5bd68a; }
+  #or .deep { position: absolute; left: 0; right: 0; bottom: 0; background: #ff7a8a; border-radius: 0 0 12px 12px; }
+  #or .surf { position: absolute; left: -8px; right: -8px; height: 4px; background: var(--ink); border-radius: 2px; }
+  #or .tipmark { position: absolute; left: -16px; width: 66px; height: 12px; margin-top: -6px; background: #ffb000; border: 3px solid var(--ink); border-radius: 8px; }
+  #or .gauge .lbl { color: #7a7394; font: 800 11px ui-rounded, system-ui; text-transform: uppercase; letter-spacing: .5px; }
+  #or .gauge b { font: 900 22px ui-rounded, system-ui; display: block; margin-bottom: 4px; }
+  #or .msg { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); font: 900 54px ui-rounded, system-ui; color: #fff;
+        text-shadow: 0 5px 0 var(--ink), 0 0 4px var(--ink), 0 0 4px var(--ink); pointer-events: none; text-align: center; white-space: nowrap; }
+  #or .msg.bad { color: #ff5a6e; } #or .msg.good { color: #5bd68a; } #or .msg.info { color: #ffc24d; }
   #or .card { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(620px, 92vw); max-height: 86vh; overflow: auto;
-              background: #151820ee; border: 1px solid #333844; border-radius: 14px; padding: 22px 26px; }
-  #or .card h1 { margin: 0 0 6px; font-size: 34px; } #or .card h3 { margin: 14px 0 6px; }
-  #or .card p { color: #b9c0cc; line-height: 1.45; margin: 6px 0; }
-  #or .card table { width: 100%; border-collapse: collapse; font-size: 15px; } #or .card td { padding: 4px 6px; border-bottom: 1px solid #262a33; }
-  #or .card td:last-child { text-align: right; font-family: ui-monospace, monospace; }
-  #or .grade { font: 800 64px system-ui; float: right; margin-left: 12px; }
-  #or .card button { margin: 10px 8px 0 0; font-size: 16px; padding: 10px 16px; }
-  #or .card input { font-size: 16px; padding: 9px 10px; width: 200px; }
-  #or .nohand { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); color: #ffb547; font-size: 18px; pointer-events: none; }
-  #or .exit { position: absolute; bottom: 14px; right: 14px; }
+        background: var(--paper); border: 5px solid var(--ink); border-radius: 28px; padding: 24px 28px; box-shadow: 0 12px 0 var(--ink); }
+  #or .card h1 { margin: 0 0 6px; font: 900 38px ui-rounded, system-ui; } #or .card h3 { margin: 16px 0 6px; font: 900 20px ui-rounded, system-ui; }
+  #or .card p { color: #5b5470; line-height: 1.45; margin: 6px 0; font-weight: 600; }
+  #or .card table { width: 100%; border-collapse: collapse; font-size: 15px; font-weight: 700; }
+  #or .card td { padding: 6px 6px; border-bottom: 2px dashed #e2ddef; }
+  #or .card td:last-child { text-align: right; font-weight: 900; }
+  #or .grade { font: 900 84px ui-rounded, system-ui; float: right; margin-left: 12px; color: #ff5e8a; text-shadow: 0 6px 0 var(--ink), 0 0 3px var(--ink); line-height: 1; }
+  #or .card button, #or .exit { margin: 12px 10px 0 0; font: 900 17px ui-rounded, system-ui; padding: 12px 22px; color: var(--ink); background: #9be7ff;
+        border: 4px solid var(--ink); border-radius: 999px; box-shadow: 0 5px 0 var(--ink); cursor: pointer; }
+  #or .card button:first-of-type { background: #ffc24d; }
+  #or .card button:active, #or .exit:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+  #or .card input { font: 700 17px ui-rounded, system-ui; padding: 10px 14px; width: 210px; color: var(--ink); background: #fff; border: 4px solid var(--ink); border-radius: 999px; }
+  #or .nohand { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); pointer-events: none; font: 800 17px ui-rounded, system-ui;
+        color: #fff; background: #ff7a8a; border: 4px solid var(--ink); border-radius: 999px; padding: 8px 18px; box-shadow: 0 5px 0 var(--ink); }
+  #or .nohand:empty { display: none; }
+  #or .exit { position: absolute; bottom: 14px; right: 18px; margin: 0; font-size: 14px; padding: 8px 16px; background: var(--paper); }
+  @media (max-width: 1100px) {
+    #or .top h2 { font-size: 22px; } #or .top .obj, #or .timer { font-size: 13px; max-width: 46vw; }
+    #or .monitor { transform: scale(0.78); transform-origin: top right; }
+    #or .gauge { transform: translateY(-50%) scale(0.85); transform-origin: left center; }
+  }
 `;
 document.head.appendChild(css);
 const root = document.createElement('div');
@@ -74,50 +91,143 @@ root.innerHTML = `
 document.body.appendChild(root);
 const $ = id => document.getElementById(id);
 
-// --- 3D scene: surgeon's view from the bottom edge of the card ---
+// --- 3D scene: a toy operating room, seen from the surgeon's side (the bottom edge of the card) ---
+// Chunky, soft, clay-like shapes in bright colours (think Gang Beasts), not realistic anatomy.
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.domElement.className = 'view';
 root.insertBefore(renderer.domElement, root.firstChild);
 const scene3 = new THREE.Scene();
-scene3.background = new THREE.Color(0x0b0d10);
-const cam = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-cam.position.set(0, 13.5, 10.5);
-cam.lookAt(0, 1.2, -0.6);
-scene3.add(new THREE.HemisphereLight(0xffffff, 0x334455, 0.6));
-const lamp = new THREE.DirectionalLight(0xffffff, 0.6); lamp.position.set(2, 12, 6); scene3.add(lamp);
+scene3.background = new THREE.Color(0xbfe3ef);
+scene3.fog = new THREE.Fog(0xbfe3ef, 34, 70);
+const cam = new THREE.PerspectiveCamera(42, 1, 0.1, 150);
+cam.position.set(0, 14.5, 11.5);
+cam.lookAt(0, 1.0, -1.6);
 
-function tissueTexture() {
-  const c = document.createElement('canvas'); c.width = c.height = 512;
-  const g = c.getContext('2d');
-  const grad = g.createRadialGradient(256, 256, 40, 256, 256, 360);
-  grad.addColorStop(0, '#e3a39b'); grad.addColorStop(1, '#c97d76');
-  g.fillStyle = grad; g.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(${150 + Math.random() * 60},${70 + Math.random() * 40},${70 + Math.random() * 30},0.15)`; g.fillRect(Math.random() * 512, Math.random() * 512, 3, 3); }
-  return new THREE.CanvasTexture(c);
+const clay = (color, roughness = 0.8, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, metalness: 0, ...extra });
+const solid = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; return m; };
+
+// lights: soft sky fill plus the surgical lamp overhead, which casts the instrument's shadow onto the tissue
+scene3.add(new THREE.HemisphereLight(0xffffff, 0xb7a6d6, 0.6));
+const lamp = new THREE.SpotLight(0xfff4e0, 0.85, 0, Math.PI / 6, 0.65);
+lamp.position.set(1.5, 26, 2); lamp.target.position.set(0, SURFACE, -0.5);
+lamp.castShadow = true; lamp.shadow.mapSize.set(2048, 2048); lamp.shadow.bias = -0.0004;
+lamp.shadow.camera.near = 12; lamp.shadow.camera.far = 45;
+scene3.add(lamp, lamp.target);
+const fill = new THREE.DirectionalLight(0xe4ecff, 0.3); fill.position.set(-8, 10, 14); scene3.add(fill);
+
+function canvasTexture(draw, size = 256) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  draw(c.getContext('2d'), size);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
 }
-// surgical drape around the field, below the deep tissue so it only shows around the edges
-const drape = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: 0x1f4d3e }));
-drape.rotation.x = -Math.PI / 2; drape.position.y = 0.45; scene3.add(drape);
-// tissue is see-through so the structures underneath stay visible (an "x-ray" view)
-const tissue = new THREE.Mesh(new THREE.PlaneGeometry(7, 11), new THREE.MeshStandardMaterial({ map: tissueTexture(), transparent: true, opacity: 0.7, depthWrite: false }));
-tissue.rotation.x = -Math.PI / 2; tissue.position.y = SURFACE; scene3.add(tissue);
-const below = new THREE.Mesh(new THREE.PlaneGeometry(7, 11), new THREE.MeshStandardMaterial({ color: 0x6e2a2a }));   // deep tissue floor
-below.rotation.x = -Math.PI / 2; below.position.y = 0.6; scene3.add(below);
+// floor: big soft mint tiles
+const tiles = canvasTexture((g, n) => { g.fillStyle = '#a6dccd'; g.fillRect(0, 0, n, n); g.fillStyle = '#96d0c0'; g.fillRect(0, 0, n / 2, n / 2); g.fillRect(n / 2, n / 2, n / 2, n / 2); });
+tiles.repeat.set(14, 14);
+const floor = solid(new THREE.PlaneGeometry(140, 140), clay(0xffffff, 0.9, { map: tiles }), 0, -7, 0);
+floor.rotation.x = -Math.PI / 2; scene3.add(floor);
 
-// instrument: tip at the group's origin, pointing along -y in its own frame
+// operating table: chunky slab on a single column
+scene3.add(solid(new THREE.BoxGeometry(11, 1, 27), clay(0xc9d3e6, 0.6), 0, SURFACE - 2.85, -1.5));
+scene3.add(solid(new THREE.CylinderGeometry(1.4, 1.9, 6.1, 28), clay(0x8f9bb3, 0.5), 0, (SURFACE - 3.35 - 7) / 2, -1.5));
+scene3.add(solid(new THREE.CylinderGeometry(3.2, 3.4, 0.6, 32), clay(0x8f9bb3, 0.5), 0, -6.7, -1.5));
+
+// the patient lies under a thick padded drape with an opening over the operating field
+const D = 2.0, BEVEL = 0.35;
+const drapeShape = new THREE.Shape();
+(function roundRect(s, x0, y0, x1, y1, r) {
+  s.moveTo(x0 + r, y0); s.lineTo(x1 - r, y0); s.quadraticCurveTo(x1, y0, x1, y0 + r); s.lineTo(x1, y1 - r); s.quadraticCurveTo(x1, y1, x1 - r, y1);
+  s.lineTo(x0 + r, y1); s.quadraticCurveTo(x0, y1, x0, y1 - r); s.lineTo(x0, y0 + r); s.quadraticCurveTo(x0, y0, x0 + r, y0);
+})(drapeShape, -5.4, -8.5, 5.4, 11.2, 1.6);   // shape y = -z after the rotation below: covers z -11.2 (head end) .. 8.5
+const hole = new THREE.Path();
+hole.moveTo(-3.5, -5.5); hole.lineTo(3.5, -5.5); hole.lineTo(3.5, 5.5); hole.lineTo(-3.5, 5.5); hole.lineTo(-3.5, -5.5);
+drapeShape.holes.push(hole);
+const drape = solid(new THREE.ExtrudeGeometry(drapeShape, { depth: D, bevelEnabled: true, bevelThickness: BEVEL, bevelSize: BEVEL, bevelSegments: 4, curveSegments: 10 }),
+  clay(0x4fc3b0, 0.95));
+drape.rotation.x = -Math.PI / 2; drape.position.y = SURFACE - D - BEVEL;
+scene3.add(drape);
+// the opening: a pink body cavity under a see-through membrane (an "x-ray" view, so the anatomy stays visible)
+const cavityH = SURFACE - 0.6;
+scene3.add(solid(new THREE.BoxGeometry(7, cavityH, 11), clay(0xe8798c, 0.75, { side: THREE.BackSide }), 0, 0.6 + cavityH / 2, 0));
+const membraneTex = canvasTexture((g, n) => {
+  const gr = g.createRadialGradient(n / 2, n / 2, 10, n / 2, n / 2, n * 0.7); gr.addColorStop(0, '#ffc2cc'); gr.addColorStop(1, '#ff9fb0');
+  g.fillStyle = gr; g.fillRect(0, 0, n, n);
+  for (let i = 0; i < 40; i++) { g.fillStyle = 'rgba(255,255,255,0.18)'; g.beginPath(); g.arc(Math.random() * n, Math.random() * n, 4 + Math.random() * 12, 0, 7); g.fill(); }
+});
+const tissue = new THREE.Mesh(new THREE.PlaneGeometry(7, 11), clay(0xffffff, 0.45, { map: membraneTex, transparent: true, opacity: 0.4, depthWrite: false }));
+tissue.rotation.x = -Math.PI / 2; tissue.position.y = SURFACE + 0.005; tissue.receiveShadow = true;
+scene3.add(tissue);
+
+// head, sleeping under anaesthesia: cap, closed eyes, nose, oxygen mask; X eyes if the patient is lost
+const skinMat = clay(0xffc9a8, 0.7);
+const head = new THREE.Group();
+head.position.set(0, SURFACE - 0.5, -13);
+const skull = solid(new THREE.SphereGeometry(2, 40, 28), skinMat); skull.scale.set(1, 0.92, 1.05);
+const capMesh = solid(new THREE.SphereGeometry(2.08, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), clay(0x4fc3b0, 0.95));
+capMesh.rotation.x = -Math.PI / 2.4;
+const ink = clay(0x2b2540, 0.6);
+// the face looks up; going from the crown (-z) toward the body: brows, eyes, nose, oxygen mask
+const eyes = [-0.7, 0.7].map(x => { const e = solid(new THREE.SphereGeometry(0.3, 16, 10), ink, x, 1.8, -0.15); e.scale.set(1, 0.3, 0.45); return e; });
+const brows = [-0.7, 0.7].map(x => solid(new THREE.BoxGeometry(0.62, 0.12, 0.16), ink, x, 1.83, -0.62));
+const xEyes = [-0.7, 0.7].flatMap(x => [0.6, -0.6].map(r => { const b = solid(new THREE.BoxGeometry(0.62, 0.14, 0.14), ink, x, 1.84, -0.15); b.rotation.y = r; b.visible = false; return b; }));
+const nose = solid(new THREE.SphereGeometry(0.42, 20, 14), skinMat, 0, 1.75, 0.55);
+const mask = new THREE.Mesh(new THREE.SphereGeometry(0.9, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2), clay(0x9be7ff, 0.2, { transparent: true, opacity: 0.55 }));
+mask.position.set(0, 1.5, 1.05);
+head.add(skull, capMesh, ...eyes, ...brows, ...xEyes, nose, mask);
+scene3.add(head);
+// arms resting at the sides, chunky and soft
+for (const s of [-1, 1]) {
+  const arm = solid(new THREE.CylinderGeometry(0.85, 0.85, 7.5, 24), skinMat, s * 6.6, SURFACE - 1.7, -6.2); arm.rotation.x = Math.PI / 2;
+  scene3.add(arm, solid(new THREE.SphereGeometry(0.85, 24, 16), skinMat, s * 6.6, SURFACE - 1.7, -9.95), solid(new THREE.SphereGeometry(1.05, 24, 16), skinMat, s * 6.6, SURFACE - 1.6, -2.3));
+}
+// IV stand with a bag and a line to the arm
+const pole = solid(new THREE.CylinderGeometry(0.12, 0.12, 16, 12), clay(0xb8c2d6, 0.4), -9.5, 1, -9);
+const bag = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), clay(0xbfefff, 0.2, { transparent: true, opacity: 0.75 }));
+bag.scale.set(0.8, 1.2, 0.45); bag.position.set(-9.5, 7.6, -8.6);
+const ivLine = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([V3(-9.5, 6.3, -8.6), V3(-9, 3, -8), V3(-7.6, SURFACE - 0.9, -7)]), 30, 0.06, 8), clay(0xe6f7ff, 0.3));
+scene3.add(pole, bag, ivLine);
+
+// instrument: a chunky toy scalpel. Tip at the group's origin, pointing along -y in its own frame.
 const tool = new THREE.Group();
-const steel = new THREE.MeshStandardMaterial({ color: 0xc9d1dc, metalness: 0.8, roughness: 0.25 });
-const blade = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.9, 16), steel); blade.rotation.x = Math.PI; blade.position.y = 0.45;
-const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.6, 12), steel); shaft.position.y = 0.9 + 1.8;
-const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.2, 3.5, 16), new THREE.MeshStandardMaterial({ color: 0x3a6fd8 })); grip.position.y = 4.5 + 1.75;
-tool.add(blade, shaft, grip);
+const steel = new THREE.MeshStandardMaterial({ color: 0xe6ecf5, metalness: 0.55, roughness: 0.28 });
+const toyOrange = clay(0xff8a3d, 0.55);
+const blade = solid(new THREE.ConeGeometry(0.27, 1.25, 28), steel, 0, 0.62, 0); blade.rotation.x = Math.PI; blade.scale.z = 0.38;
+const neck = solid(new THREE.CylinderGeometry(0.1, 0.13, 1.5, 16), steel, 0, 1.25 + 0.75, 0);
+const handle = solid(new THREE.CylinderGeometry(0.38, 0.38, 3.6, 28), toyOrange, 0, 2.75 + 1.8, 0);
+const capLo = solid(new THREE.SphereGeometry(0.38, 24, 14), toyOrange, 0, 2.75, 0), capHi = solid(new THREE.SphereGeometry(0.38, 24, 14), toyOrange, 0, 6.35, 0);
+const grip = solid(new THREE.TorusGeometry(0.4, 0.09, 10, 28), clay(0xffffff, 0.5), 0, 3.4, 0); grip.rotation.x = Math.PI / 2;
+tool.add(blade, neck, handle, capLo, capHi, grip);
+tool.visible = false;   // until the instrument is detected
 scene3.add(tool);
-const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.22, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.45 }));
-shadow.rotation.x = -Math.PI / 2; scene3.add(shadow);
-const plumb = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(0, 0, 0), V3(0, 1, 0)]), new THREE.LineBasicMaterial({ color: 0xffd34d }));
+const plumb = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(0, 0, 0), V3(0, 1, 0)]), new THREE.LineBasicMaterial({ color: 0xffb000 }));
 scene3.add(plumb);
 const procGroup = new THREE.Group(); scene3.add(procGroup);
+
+// --- animation: jelly wobble, heartbeat pulse, breathing, flinches ---
+const wobblers = [];   // { mesh, base, amp, speed, phase }: squash-and-stretch, cleared with each procedure
+const wobble = (mesh, amp = 0.05, speed = 4) => { wobblers.push({ mesh, base: mesh.scale.clone(), amp, speed, phase: Math.random() * 6 }); return mesh; };
+const pulsers = [];    // materials that flash on each heartbeat
+let pulse = 0, flinch = 0;
+function animate(t) {
+  for (const w of wobblers) {
+    const s = 1 + w.amp * Math.sin(t * w.speed + w.phase);
+    w.mesh.scale.set(w.base.x * s, w.base.y / s, w.base.z * s);
+  }
+  pulse *= 0.9;
+  for (const m of pulsers) m.emissiveIntensity = 0.15 + 0.6 * pulse;
+  const v = vitals(), distress = !pt.lost && (pt.bleed > 15 || pt.stress > 8);
+  const breath = pt.lost ? 0 : Math.sin(t * (v.hr / 60) * 0.9) * 0.06;
+  flinch *= 0.92;
+  head.position.y = SURFACE - 0.5 + breath + 0.18 * flinch * Math.sin(t * 40);
+  head.rotation.z = 0.08 * flinch * Math.sin(t * 33);
+  for (const e of eyes) { e.visible = !pt.lost; e.scale.z = distress ? 0.85 : 0.45; }   // closed slits; wide when in distress
+  for (const x of xEyes) x.visible = pt.lost;
+  brows.forEach((b, i) => { b.visible = !pt.lost; b.rotation.y = distress ? (i ? 0.45 : -0.45) : 0; });
+  skinMat.color.setHex(pt.lost ? 0xc7d3e8 : 0xffc9a8);
+}
+const ouch = () => { flinch = 1; };
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
@@ -125,7 +235,10 @@ function resize() {
 }
 addEventListener('resize', resize);
 let open = false;
-(function loop() { if (open) { drawEcg(); renderer.render(scene3, cam); } requestAnimationFrame(loop); })();
+(function loop() {
+  if (open) { drawEcg(); animate(performance.now() / 1000); renderer.render(scene3, cam); }
+  requestAnimationFrame(loop);
+})();
 
 // --- sound ---
 let actx = null;
@@ -173,13 +286,13 @@ function drawEcg() {
   for (let s = 0; s < steps; s++) {
     const before = pt.beatPhase;
     if (!pt.lost) pt.beatPhase = (pt.beatPhase + (v.hr / 60) * dt / steps) % 1;
-    if (!pt.lost && before < 0.31 && pt.beatPhase >= 0.31) tone(v.spo2 > 92 ? 960 : 700, 45, 'sine', 0.06);
+    if (!pt.lost && before < 0.31 && pt.beatPhase >= 0.31) { tone(v.spo2 > 92 ? 960 : 700, 45, 'sine', 0.06); pulse = 1; }
     pt.trace[pt.head] = pt.lost ? 0 : ecgShape(pt.beatPhase);
     pt.head = (pt.head + 1) % pt.trace.length;
   }
   if (pt.lost && open && now > flatTone) { tone(880, 900, 'sine', 0.05); flatTone = now + 900; }
-  g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height);
-  g.strokeStyle = pt.lost ? '#ff3b3b' : '#45e07a'; g.lineWidth = 3; g.beginPath();
+  g.fillStyle = '#14121f'; g.fillRect(0, 0, cv.width, cv.height);
+  g.strokeStyle = pt.lost ? '#ff5a6e' : '#5ef08f'; g.lineWidth = 5; g.lineJoin = 'round'; g.beginPath();
   for (let i = 0; i < pt.trace.length; i++) {
     const y = cv.height * 0.7 - pt.trace[(pt.head + i) % pt.trace.length] * cv.height * 0.55;
     i ? g.lineTo(i, y) : g.moveTo(i, y);
@@ -207,12 +320,11 @@ const tremorMm = () => {   // rms wobble of the raw tip about its 1 s average
 };
 const tiltDeg = () => Math.acos(Math.min(1, -dir[1])) * 180 / Math.PI;
 function drawTool() {
-  tool.visible = shadow.visible = plumb.visible = present && !!tip;
+  tool.visible = plumb.visible = present && !!tip;
   $('or-nohand').textContent = present ? '' : 'Instrument not detected: hold the magnet stack over the board, 1–5 cm up';
   if (!tool.visible) return;
   tool.position.set(...tip);
   tool.quaternion.setFromUnitVectors(V3(0, -1, 0), V3(...dir));
-  shadow.position.set(tip[0], SURFACE + 0.01, tip[2]);
   plumb.geometry.setFromPoints([V3(tip[0], SURFACE, tip[2]), V3(...tip)]);
   plumb.visible = tip[1] < SURFACE;
   // depth gauge: 0.5..5 cm of tip height
@@ -238,8 +350,38 @@ function say(text, cls = 'info', samples = 25) { $('or-msg').textContent = text;
 
 // --- procedures ---
 // Each has: title, objective, limit (s), band (good tip heights, or null), setup(), tick() -> 'done' | 'fail' | null, score() -> {rows, points}
-const tube = (pts, r, color) => new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p => V3(...p))), 80, r, 12, false),
-  new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
+// glossy, chunky anatomy; `beat` makes it flash with each heartbeat
+function tube(pts, r, color, beat) {
+  const mat = clay(color, 0.3, { emissive: color, emissiveIntensity: 0.15 });
+  if (beat) pulsers.push(mat);
+  const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p => V3(...p))), 90, r, 18, false), mat);
+  m.castShadow = m.receiveShadow = true;
+  return m;
+}
+// a lumpy jelly blob (noise-displaced sphere) that wobbles
+function blob(r, color, lumps = 0.18) {
+  const geo = new THREE.IcosahedronGeometry(r, 4), p = geo.attributes.position, v = new THREE.Vector3();
+  const seed = Math.random() * 10;
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const n = Math.sin(v.x * 7 + seed) * Math.sin(v.y * 6 + seed * 2) * Math.sin(v.z * 8 + seed * 3);
+    v.multiplyScalar(1 + lumps * n); p.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  const m = solid(geo, clay(color, 0.35));
+  return wobble(m, 0.05, 5);
+}
+// surgical-marker dots along a line on the surface
+function dots(pts, color, spacing = 0.28) {
+  const g = new THREE.Group(), mat = clay(color, 0.6);
+  let last = null;
+  for (const p of pts) {
+    if (last && Math.hypot(p[0] - last[0], p[2] - last[2]) < spacing) continue;
+    const d = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8), mat);
+    d.scale.y = 0.3; d.position.set(p[0], SURFACE + 0.02, p[2]); g.add(d); last = p;
+  }
+  return g;
+}
 function curvePts(pts, n = 160) { return new THREE.CatmullRomCurve3(pts.map(p => V3(...p))).getPoints(n).map(v => [v.x, v.y, v.z]); }
 function distToPolyline(p, pts, xzOnly) {   // -> { d, s } (s = 0..1 along the line)
   let best = { d: Infinity, s: 0 }, total = 0;
@@ -255,16 +397,20 @@ function distToPolyline(p, pts, xzOnly) {   // -> { d, s } (s = 0..1 along the l
   }
   return best;
 }
-function lineOn(pts, color, dashed) {
-  const geo = new THREE.BufferGeometry().setFromPoints(pts.map(p => V3(p[0], SURFACE + 0.015, p[2])));
-  const l = new THREE.Line(geo, dashed ? new THREE.LineDashedMaterial({ color, dashSize: 0.18, gapSize: 0.14 }) : new THREE.LineBasicMaterial({ color }));
-  if (dashed) l.computeLineDistances();
-  return l;
-}
+// a glossy puddle of blood that grows (growPool) and jiggles
 function bloodPool(p, r) {
-  const m = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: 0x8a0000, transparent: true, opacity: 0.75 }));
-  m.rotation.x = -Math.PI / 2; m.position.set(p[0], SURFACE + 0.02, p[2]); m.scale.setScalar(r);
-  procGroup.add(m); return m;
+  const m = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 14), clay(0xc8102e, 0.15));
+  m.position.set(p[0], SURFACE + 0.03, p[2]); m.scale.set(r, r * 0.22, r); m.receiveShadow = true;
+  procGroup.add(m); wobble(m, 0.04, 3); return m;
+}
+function growPool(m, max, step) {
+  const w = wobblers.find(w => w.mesh === m), r = Math.min(max, (w ? w.base.x : m.scale.x) + step);
+  if (w) w.base.set(r, r * 0.22, r); else m.scale.set(r, r * 0.22, r);
+}
+// the cut: a dark red groove built from small blobs as the blade moves
+function cutBlob(p) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), clay(0x7a0f22, 0.4));
+  m.scale.set(1, 0.4, 1); m.position.set(p[0], SURFACE + 0.025, p[2]); return m;
 }
 
 const PROCS = [
@@ -273,10 +419,10 @@ const PROCS = [
     band: [SURFACE - CUT_BOTTOM, SURFACE - CUT_TOP],
     setup() {
       this.path = curvePts([[-0.3, SURFACE, 3.3], [0.9, SURFACE, 1.6], [-0.6, SURFACE, -0.2], [0.8, SURFACE, -1.9], [-0.2, SURFACE, -3.4]], 120);
-      procGroup.add(lineOn(this.path, 0xffffff, true));
-      const start = new THREE.Mesh(new THREE.CircleGeometry(0.25, 24), new THREE.MeshBasicMaterial({ color: 0x3fcf6e }));
-      start.rotation.x = -Math.PI / 2; start.position.set(this.path[0][0], SURFACE + 0.02, this.path[0][2]); procGroup.add(start);
-      this.cutPts = []; this.cutLine = null; this.progress = 0; this.devs = []; this.depths = []; this.deepCount = 0; this.offCount = 0; this.pool = null;
+      procGroup.add(dots(this.path, 0x7e57c2));
+      const start = solid(new THREE.SphereGeometry(0.3, 24, 14), clay(0x2ecc71, 0.5), this.path[0][0], SURFACE + 0.04, this.path[0][2]);
+      start.scale.y = 0.35; procGroup.add(wobble(start, 0.12, 4));
+      this.cutPts = []; this.progress = 0; this.devs = []; this.depths = []; this.deepCount = 0; this.offCount = 0; this.pool = null;
     },
     tick() {
       const cutting = tip[1] < SURFACE - CUT_TOP;
@@ -285,9 +431,9 @@ const PROCS = [
       const tooDeep = tip[1] < SURFACE - CUT_BOTTOM;
       if (tooDeep) {
         pt.bleed = Math.max(pt.bleed, 30);
-        if (this.deepCount++ % 25 === 0) { say('TOO DEEP: bleeding!', 'bad'); alarm(); }
+        if (this.deepCount++ % 25 === 0) { say('TOO DEEP: bleeding!', 'bad'); alarm(); ouch(); }
         if (!this.pool) this.pool = bloodPool(tip, 0.2);
-        this.pool.scale.setScalar(Math.min(1.4, this.pool.scale.x + 0.01));
+        growPool(this.pool, 1.4, 0.01);
       }
       if (d > 0.5) {   // cutting off the line
         pt.bleed = Math.max(pt.bleed, 8);
@@ -298,9 +444,8 @@ const PROCS = [
       if (s >= this.progress - 0.02 && s <= this.progress + 0.08) {
         this.progress = Math.max(this.progress, s);
         this.devs.push(d); this.depths.push(tip[1]);
-        this.cutPts.push([tip[0], SURFACE, tip[2]]);
-        if (this.cutLine) procGroup.remove(this.cutLine);
-        if (this.cutPts.length > 1) { this.cutLine = lineOn(this.cutPts, 0x8a0000); procGroup.add(this.cutLine); }
+        const last = this.cutPts[this.cutPts.length - 1];
+        if (!last || Math.hypot(tip[0] - last[0], tip[2] - last[2]) > 0.1) { this.cutPts.push([tip[0], SURFACE, tip[2]]); procGroup.add(cutBlob(tip)); }
       }
       $('or-obj').textContent = `Incision ${(this.progress * 100).toFixed(0)}% · off the line by ${(d * 10).toFixed(1)} mm`;
       return this.progress > 0.97 ? 'done' : null;
@@ -324,11 +469,11 @@ const PROCS = [
     band: null,
     setup() {
       this.T = [0.25, 1.55, -0.9]; this.R = 0.45;
-      this.tumour = new THREE.Mesh(new THREE.IcosahedronGeometry(this.R, 2), new THREE.MeshStandardMaterial({ color: 0x8e44ad, roughness: 0.8, flatShading: true }));
+      this.tumour = blob(this.R, 0x9b59b6, 0.22);
       this.tumour.position.set(...this.T); procGroup.add(this.tumour);
       this.artery = curvePts([[-2.6, 1.7, 3.2], [-1.0, 1.6, 0.8], [-0.62, 1.55, -0.9], [-0.95, 1.65, -2.8], [-2.2, 1.8, -4.5]]);
       this.nerve = curvePts([[2.6, 1.9, 2.8], [1.35, 1.7, 0.6], [1.1, 1.6, -0.9], [1.45, 1.7, -2.8], [2.4, 1.8, -4.4]]);
-      procGroup.add(tube(this.artery.map(p => p), 0.28, 0xd32f2f), tube(this.nerve, 0.17, 0xf4d03f));
+      procGroup.add(tube(this.artery, 0.28, 0xff4d6d, true), tube(this.nerve, 0.17, 0xffd166));
       this.excise = 0; this.excised = false; this.arteryHits = 0; this.nerveHits = 0; this.touchA = false; this.touchN = false; this.clearA = this.clearN = 99; this.closest = 9; this.pool = null;
     },
     tick() {
@@ -338,10 +483,10 @@ const PROCS = [
       this.clearA = hitA ? 0 : this.clearA + 1; this.clearN = hitN ? 0 : this.clearN + 1;
       if (hitA) {
         pt.bleed = Math.max(pt.bleed, 160);
-        if (!this.touchA) { this.arteryHits++; say('ARTERY HIT: haemorrhage!', 'bad', 40); alarm(); logEvent({ event: 'or_artery_hit' }); if (!this.pool) this.pool = bloodPool(tip, 0.4); }
-        if (this.pool) this.pool.scale.setScalar(Math.min(2.2, this.pool.scale.x + 0.02));
+        if (!this.touchA) { this.arteryHits++; say('ARTERY HIT: haemorrhage!', 'bad', 40); alarm(); ouch(); logEvent({ event: 'or_artery_hit' }); if (!this.pool) this.pool = bloodPool(tip, 0.4); }
+        if (this.pool) growPool(this.pool, 2.2, 0.02);
       }
-      if (hitN && !this.touchN) { this.nerveHits++; pt.stress += 25; say('NERVE DAMAGE', 'bad', 40); alarm(); logEvent({ event: 'or_nerve_hit' }); }
+      if (hitN && !this.touchN) { this.nerveHits++; pt.stress += 25; say('NERVE DAMAGE', 'bad', 40); alarm(); ouch(); logEvent({ event: 'or_nerve_hit' }); }
       this.touchA = hitA || this.clearA < 10; this.touchN = hitN || this.clearN < 10;
       const dT = M.norm(M.sub(tip, this.T));
       this.closest = Math.min(this.closest, dT);
@@ -377,15 +522,19 @@ const PROCS = [
       this.T = [-0.7, 1.2, 1.4];
       this.A = M.normalize([Math.sin(30 * Math.PI / 180), -Math.cos(30 * Math.PI / 180), 0]);   // needle direction: 30° from vertical, leaning right-to-left
       const entry = M.sub(this.T, M.scale(this.A, (SURFACE - this.T[1]) / -this.A[1]));
-      const nod = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 16), new THREE.MeshStandardMaterial({ color: 0xe67e22 }));
+      const nod = blob(0.32, 0xff9f43, 0.15);
       nod.position.set(...this.T); procGroup.add(nod);
-      const guide = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 6, 10), new THREE.MeshBasicMaterial({ color: 0x4da3ff, transparent: true, opacity: 0.55 }));
+      // the approach to match: a chunky see-through guide rod above the entry point, dots below it to the nodule
+      const guide = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 6, 20), clay(0x6fd6ff, 0.3, { transparent: true, opacity: 0.5 }));
       const mid = M.sub(entry, M.scale(this.A, 3)); guide.position.set(...mid);
       guide.quaternion.setFromUnitVectors(V3(0, 1, 0), V3(...M.scale(this.A, -1))); procGroup.add(guide);
-      const path = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(...entry), V3(...this.T)]), new THREE.LineDashedMaterial({ color: 0x4da3ff, dashSize: 0.12, gapSize: 0.1 }));
-      path.computeLineDistances(); procGroup.add(path);
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.26, 24), new THREE.MeshBasicMaterial({ color: 0x4da3ff }));
-      ring.rotation.x = -Math.PI / 2; ring.position.set(entry[0], SURFACE + 0.02, entry[2]); procGroup.add(ring);
+      const steps = 6;
+      for (let k = 1; k < steps; k++) {
+        const p = M.add(entry, M.scale(M.sub(this.T, entry), k / steps));
+        procGroup.add(solid(new THREE.SphereGeometry(0.07, 10, 8), clay(0x6fd6ff, 0.4), ...p));
+      }
+      const ring = solid(new THREE.TorusGeometry(0.28, 0.07, 10, 28), clay(0x3fa7ff, 0.4), entry[0], SURFACE + 0.04, entry[2]);
+      ring.rotation.x = Math.PI / 2; procGroup.add(wobble(ring, 0.08, 4));
       this.entry = entry; this.angErrs = []; this.hold = 0; this.tremors = []; this.inside = false;
     },
     tick() {
@@ -418,7 +567,7 @@ const PROCS = [
 let mode = 'menu', cur = null, curIdx = -1, sample = 0, procStart = 0, caseResults = [], soloRun = false;
 function grade(p) { return p >= 900 ? 'A+' : p >= 800 ? 'A' : p >= 680 ? 'B' : p >= 540 ? 'C' : p >= 400 ? 'D' : 'F'; }
 function card(html) { $('or-card').innerHTML = html; $('or-card').style.display = html ? 'block' : 'none'; }
-function hud(on) { for (const id of ['or-title', 'or-obj', 'or-timer']) $(id).style.display = on ? 'block' : 'none'; }
+function hud(on) { for (const id of ['or-title', 'or-obj', 'or-timer']) $(id).style.display = on ? '' : 'none'; }
 
 function menu() {
   mode = 'menu'; cur = null; clearProc(); hud(false);
@@ -429,7 +578,7 @@ function menu() {
     ${PROCS.map((p, i) => `<button data-go="${i}">${p.title.split(' · ')[1]}</button>`).join('')}
     <h3>Leaderboard</h3>${leaderboardHtml()}`);
 }
-function clearProc() { while (procGroup.children.length) procGroup.remove(procGroup.children[0]); }
+function clearProc() { while (procGroup.children.length) procGroup.remove(procGroup.children[0]); wobblers.length = 0; pulsers.length = 0; }
 function startProc(i) {
   curIdx = i; cur = PROCS[i]; clearProc(); cur.setup();
   card(`<h1>${cur.title}</h1><p>${cur.objective}</p><p>Time limit ${cur.limit} s. The patient's vitals react to every mistake.</p>
