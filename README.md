@@ -45,6 +45,31 @@ Click **Surgery game** for MagTrack OR: **Training** drills (incision, tumour re
 
 **🩺 AI attending** (bottom left in the game): after each procedure, Claude (`claude-sonnet-5-5`) reads the game's measurements (points per step, mm off the line, tremor, angle error, blood loss, vessel hits) and your recent attempts, and returns a short debrief: what went well, the one thing to fix (tied to a measured number), and which drill to do next. The game keeps the score; Claude only explains it. It needs internet and an Anthropic API key, which you paste in the game: the key stays in that browser's localStorage and is sent only to Anthropic (the official SDK is loaded from jsdelivr, pinned). Don't enter a key on a shared computer, and don't host the page publicly with a key in it. Debriefs are logged in recordings (`or_debrief`) so you can measure progress.
 
+## Voice: Riley, the AI surgical assistant (Cartesia)
+
+During the surgery game, **Riley** talks you through each procedure in a Cartesia **Sonic** voice, reacting to your real instrument movements. She hands you each instrument ("Bone saw."), gives the step, and calls out what she sees: getting close to a target, too deep, too close to the artery, shaking, moving too fast, blood pressure falling, blood loss, the last 30 seconds and a countdown. When you hit the artery: "Bleeder! You hit the artery!"
+
+**Setup** (the key stays on your machine, never in the browser or the repo):
+
+```
+cp .env.example .env          # then put your key in .env: CARTESIA_API_KEY=sk_car_...
+node server.js                # or: CARTESIA_API_KEY=sk_car_... node server.js
+```
+
+Open http://localhost:8765/viewer.html. `server.js` (Node 18+, no dependencies) serves the viewer and proxies speech to Cartesia; it listens on 127.0.0.1 only and won't serve dotfiles such as `.env`. Optional settings: `CARTESIA_VOICE_ID` (otherwise it picks a calm English voice), `CARTESIA_MODEL` (default `sonic-3.6`).
+
+**How it works:**
+- The game emits events (step start, too deep, artery hit, …) and `voice.js` also watches live state each tracking sample: distance to the target, hand speed inside the patient, tremor while holding, blood pressure, blood loss, and the clock.
+- A director picks what to say: four priority levels (critical, warning, guidance, chatter). More urgent lines interrupt less urgent ones; otherwise only the most important waiting line is kept, and stale ones are dropped. Each event has a cooldown, and repeating a mistake escalates the wording, speed and emotion.
+- Cartesia features used: the Sonic TTS bytes API (`/tts/bytes`) with `sonic-3.6`, per-line `generation_config` speed and emotion (calm, then determined, then scared as things get worse; excited when the heart restarts), and the voices API to pick a voice. Audio streams as MP3 and starts playing on the first bytes. `server.js` caches recent lines and prefetches likely ones per step, so frequent callouts are instant and don't spend credits again.
+- Speech never blocks tracking: requests and playback are asynchronous. Every line also appears as a caption, so it works with the sound off and for players who are deaf or hard of hearing. The 🔊 button mutes Riley.
+
+**Known limitations:**
+- It needs internet. Without `server.js`, or without a key, Riley falls back to the browser's built-in voice, and the button says so.
+- The first time a line is said there is a short delay while Cartesia generates it; prefetching hides most of this.
+- Lines are scripted, with numbers filled in from the game. The free-form debrief comes from the AI attending (Claude), which is not spoken.
+- It's a training game, not medical advice. Spoken text is game-generated and contains no personal data.
+
 ## Calibrating chip orientation
 
 The viewer assumes every chip is mounted the same way. If a breakout is turned or flipped, its arrow points the wrong way. To measure how each chip is really mounted:
@@ -127,6 +152,8 @@ Values are in microtesla, ordered by multiplexer channel; `nan` means that senso
 - `viewer.html`: the 3D viewer (Web Serial + three.js), recording, replay and orientation calibration
 - `controller.js`: controller mode (cursor, flip-to-click, keyboard, target game)
 - `surgery.js`, `operations.js`: the surgery game (training drills, multi-step operations)
+- `voice.js`: Riley, the spoken surgical assistant (Cartesia Sonic)
+- `server.js`: local server, serves the viewer and proxies Cartesia TTS with the key from the environment
 - `attending.js`: the AI attending debrief (Claude via the Anthropic SDK)
 - `magmath.js`: magnet fit, orientation calibration and recording parser, shared by the viewer and `tools/analyze.js`
 - `tools/analyze.js`: command-line report for a recording

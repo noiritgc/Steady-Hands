@@ -189,10 +189,10 @@ function cutStep(o) {   // trace o.line (xz) with the tip between o.band heights
       const { d, s } = distToPolyline(tip, o.line, true);
       if (tip[1] < o.band[0]) {
         OR.pt.bleed = Math.max(OR.pt.bleed, o.deepBleed ?? 25);
-        if (deep++ % 25 === 0) { OR.say(o.deepMsg || 'TOO DEEP!', 'bad'); OR.alarm(); OR.ouch(); }
+        if (deep++ % 25 === 0) { OR.say(o.deepMsg || 'TOO DEEP!', 'bad'); OR.alarm(); OR.ouch(); OR.emit(o.deepEvent || 'too_deep'); }
       }
-      if (d > 0.5) { if (off++ % 30 === 0) OR.say('Stay on the line', 'bad'); return false; }
-      if (progress === 0 && s > 0.08) { OR.say('Start at the green dot', 'info'); return false; }
+      if (d > 0.5) { if (off++ % 30 === 0) { OR.say('Stay on the line', 'bad'); OR.emit('off_line'); } return false; }
+      if (progress === 0 && s > 0.08) { OR.say('Start at the green dot', 'info'); OR.emit('start_at_dot'); return false; }
       if (s >= progress - 0.02 && s <= progress + 0.1) {
         progress = Math.max(progress, s); devs.push(d);
         if (o.groove !== false && (!last || xzDist(tip, last) > 0.1)) { last = tip.slice(); groove.push(add(OR.cutBlob(tip))); }
@@ -222,13 +222,14 @@ function sawStep(o) {   // saw back and forth along o.line inside o.band until o
       const tip = OR.tip, { d, s } = distToPolyline(tip, o.line, true);
       if (tip[1] < o.band[0] - 0.1) {
         OR.pt.bleed = Math.max(OR.pt.bleed, 70);
-        if (gap <= 0) { nicks++; gap = 20; OR.say(o.deepMsg || 'Too deep!', 'bad'); OR.alarm(); OR.ouch(); }
-      }
+        if (gap <= 0) { nicks++; gap = 20; OR.say(o.deepMsg || 'Too deep!', 'bad'); OR.alarm(); OR.ouch(); OR.emit('saw_nick'); }
+      } else if (tip[1] < o.band[0] + 0.05) OR.emit('saw_deep_warning');
       gap--;
       if (tip[1] > o.band[1] || d > 0.6) { lastS = null; return false; }
       if (lastS !== null) travel += Math.abs(s - lastS) * len;
       lastS = s;
       if (OR.sample % 2 === 0) { spark([tip[0], o.markY + 0.05, tip[2]], 0xfffbe8); OR.tone(rand(130, 190), 60, 'sawtooth', 0.04); }
+      OR.emit('sawing', { pct: Math.round(100 * clamp01(travel / o.need)) });
       const f = clamp01(travel / o.need);   // the crack grows along the bone with progress
       while (crack < f * o.line.length - 1) {
         const p = o.line[Math.floor(crack++)];
@@ -258,10 +259,12 @@ function dragStep(o) {   // o.handles: [{ obj, from:[x,z], to:[x,z] }] pulled in
     tick() {
       const tip = OR.tip, h = o.handles[k], d = [h.to[0] - h.from[0], h.to[1] - h.from[1]];
       if (!grabbed) {
-        if (tip[1] < SURFACE - 0.05 && Math.hypot(tip[0] - knob.position.x, tip[2] - knob.position.z) < 0.7) { grabbed = true; OR.tone(520, 80); OR.say('Hooked: now pull outward', 'info', 20); }
+        const dk = Math.hypot(tip[0] - knob.position.x, tip[2] - knob.position.z);
+        OR.setTarget(dk, 'handle');
+        if (tip[1] < SURFACE - 0.05 && dk < 0.7) { grabbed = true; OR.tone(520, 80); OR.say('Hooked: now pull outward', 'info', 20); OR.emit('hooked'); }
         return false;
       }
-      if (tip[1] > SURFACE + 0.5) { grabbed = false; drops++; OR.say('Keep it down while you pull', 'bad'); return false; }
+      if (tip[1] > SURFACE + 0.5) { grabbed = false; drops++; OR.say('Keep it down while you pull', 'bad'); OR.emit('drag_drop'); return false; }
       u = Math.max(u, clamp01(((tip[0] - h.from[0]) * d[0] + (tip[2] - h.from[1]) * d[1]) / (d[0] * d[0] + d[1] * d[1])));
       h.obj.position.set(start.x + d[0] * u, start.y, start.z + d[1] * u);
       knob.position.set(h.from[0] + d[0] * u, SURFACE - 0.15, h.from[1] + d[1] * u);
@@ -286,7 +289,9 @@ function holdStep(o) {   // hold the tip within o.radius of each point for o.sec
     init: place,
     tick() {
       const d = M.norm(M.sub(OR.tip, o.points[k]));
+      OR.setTarget(Math.max(0, d - r * 0.5), o.what || 'point');
       if (d < r) {
+        if (held === 0) OR.emit('hold_start', { secs: sec, what: o.what });
         held += SAMPLE_DT;
         if (held > 0.3) still.push(OR.tip.slice());   // steadiness only counts once settled on the point
         if (held >= sec) {
@@ -296,9 +301,10 @@ function holdStep(o) {   // hold the tip within o.radius of each point for o.sec
           }
           if (o.make) add(o.make(o.points[k]));
           OR.tone(820, 90); held = 0; still = []; k++; place();
+          if (k < o.points.length) OR.emit('hold_done', { what: o.what, k, n: o.points.length });
           return k >= o.points.length;
         }
-      } else { held = 0; still = []; }
+      } else { if (held > 0.4) OR.emit('lost_position'); held = 0; still = []; }
       return false;
     },
     hint: () => `${o.what || 'point'} ${Math.min(k + 1, o.points.length)}/${o.points.length}: ${held > 0 ? `hold still… ${(sec - held).toFixed(1)} s` : 'hold the tip still on the ring'}`,
@@ -318,14 +324,16 @@ function grabStep(o) {   // grab o.obj (dip into it and hold), then lift it out 
     tick() {
       const tip = OR.tip, p = o.obj.position;
       if (phase === 'reach') {
+        OR.setTarget(Math.max(0, M.norm(M.sub(tip, [p.x, p.y, p.z])) - (o.radius || 0.7) * 0.5), o.what);
         if (M.norm(M.sub(tip, [p.x, p.y, p.z])) < (o.radius || 0.7)) {
           held += SAMPLE_DT;
-          if (held >= 0.5) { phase = 'carry'; OR.group.remove(mark); mark = o.place ? ring(o.place, 0x5bd68a) : null; OR.tone(600, 80); OR.say('Got it!', 'good', 15); if (o.onGrab) o.onGrab(); }
+          if (held >= 0.5) { phase = 'carry'; OR.group.remove(mark); mark = o.place ? ring(o.place, 0x5bd68a) : null; OR.tone(600, 80); OR.say('Got it!', 'good', 15); OR.emit('grabbed', { what: o.what, lift: !!o.lift }); if (o.onGrab) o.onGrab(); }
         } else held = 0;
         return false;
       }
       p.lerp(V3(tip[0], tip[1] - 0.15, tip[2]), 0.5);   // follows the forceps
       if (o.lift) return tip[1] > SURFACE + 1.0;
+      OR.setTarget(Math.max(0, M.norm(M.sub(tip, o.place)) - 0.3), 'placement');
       if (M.norm(M.sub(tip, o.place)) < 0.6) { held += SAMPLE_DT; if (held >= 1.0) { p.set(...o.place); if (mark) OR.group.remove(mark); return true; } }
       else held = 0;
       return false;
@@ -353,6 +361,7 @@ function pumpStep(o) {   // press down and up over o.at in a steady rhythm (abou
           const iv = (OR.sample - lastT) * SAMPLE_DT, ok = iv > 0.35 && iv < 0.85;
           if (ok) good++;
           OR.say(ok ? `${good} / ${o.need}` : iv <= 0.35 ? 'slower!' : 'faster!', ok ? 'good' : 'info', 10);
+          OR.emit('pump', { ok, dir: ok ? 'good' : iv <= 0.35 ? 'slower' : 'faster', good, need: o.need });
         }
         lastT = OR.sample;
       }
@@ -375,12 +384,14 @@ function stitchStep(o) {   // dip the needle into each zig-zag point in order (l
     init() { t0 = OR.sample; if (o.before) o.before(); place(); },
     tick() {
       const tip = OR.tip, p = o.points[k];
+      OR.setTarget(Math.hypot(tip[0] - p[0], tip[2] - p[1]), 'stitch point');
       if (tip[1] > SURFACE + 0.15) up = true;
       if (up && tip[1] < SURFACE && Math.hypot(tip[0] - p[0], tip[2] - p[1]) < 0.45) {   // touching the skin is enough
         const here = V3(p[0], SURFACE + 0.07, p[1]);
         if (prev) add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.LineCurve3(prev, here), 4, 0.045, 8), tmat));
         add(solid(new THREE.SphereGeometry(0.08, 10, 8), tmat, here.x, here.y, here.z));
         prev = here; up = false; k++; OR.tone(900, 60); place();
+        OR.emit('stitch', { k, n: o.points.length });
         return k >= o.points.length;
       }
       return false;
@@ -409,6 +420,7 @@ function operation(def) {
       if (!s) return;
       s.t0 = OR.sample; OR.setTool(s.tool);
       if (s.init) s.init();
+      OR.emit('step_start', { name: s.name, index: this.si, total: this.steps.length, tool: s.tool, op: def.id });
       if (this.si > 0) OR.say(`Step ${this.si + 1}: ${s.name}`, 'info', 35);
     },
     tick() {
@@ -422,6 +434,7 @@ function operation(def) {
       OR.logEvent({ event: 'or_step', op: def.id, step: s.name, detail: r.detail, points: Math.round(r.points), secs: (OR.sample - s.t0) * SAMPLE_DT });
       if (s.after) s.after();
       OR.chime();
+      if (this.si + 1 < this.steps.length) OR.emit('step_done', { name: s.name });
       this.next();
       return this.si >= this.steps.length ? 'done' : null;
     },
@@ -468,7 +481,7 @@ operation({
         { obj: curtains[1], from: [xm + 0.25, 2.4], to: [xm + 1.25, 2.4] }] }),
       holdStep({ name: 'Clamp the appendix', tool: 'clamp', what: 'clamp', points: [[-1.52, 1.78, 1.45], [-1.47, 1.8, 1.85]], make: clampMesh }),
       cutStep({ name: 'Snip it free', line: curvePts([[-1.95, 1.75, 1.65], [-0.95, 1.75, 1.65]], 30), band: [1.35, 2.15], markY: 2.0, groove: false,
-        deepMsg: 'Careful: that\'s the gut!', deepBleed: 40 }),
+        deepMsg: 'Careful: that\'s the gut!', deepBleed: 40, deepEvent: 'gut_nick' }),
       grabStep({ name: 'Remove it', obj: appendix, what: 'appendix', lift: true, after: () => flyTo(appendix, V3(4.7, SURFACE + 0.45, 2.6)) }),
       stitchStep({ name: 'Stitch up',
         before: () => { curtains.forEach((c, i) => { const x0 = c.position.x, x1 = i ? (xm + open.x1) / 2 : (open.x0 + xm) / 2; tween(0.6, u => { c.position.x = x0 + (x1 - x0) * u; }); }); skin.close(); },
@@ -530,7 +543,7 @@ operation({
         { obj: halves[1], from: [0.25, -0.5], to: [1.15, -0.5] }] }),
       holdStep({ name: 'Clamp the vessels', tool: 'clamp', what: 'vessel', points: clampAt,
         make: p => { const c = clampMesh(p); clamps.push(c); return c; },
-        after: () => { OR.pt.bypass = true; OR.say('On bypass: the heart is stopped', 'info', 40); } }),
+        after: () => { OR.pt.bypass = true; OR.say('On bypass: the heart is stopped', 'info', 40); OR.emit('bypass_on'); } }),
       grabStep({ name: 'Remove the old heart', obj: oldHeart, what: 'old heart', lift: true, radius: 0.9,
         after: () => flyTo(oldHeart, V3(4.7, SURFACE + 0.6, 2.6)) }),
       grabStep({ name: 'Place the new heart', obj: newHeart, what: 'new heart', place: [0, 1.45, -0.6], radius: 0.9 }),
@@ -538,7 +551,7 @@ operation({
         after: () => clamps.forEach(c => OR.group.remove(c)) }),
       pumpStep({ name: 'Restart the heart', at: [0, -0.6], need: 8,
         onPump: () => { newHeart.userData.squish = 1; },
-        after: () => { OR.pt.bypass = false; newHeart.userData.stopped = false; OR.say('It\'s beating!', 'good', 45); } }),
+        after: () => { OR.pt.bypass = false; newHeart.userData.stopped = false; OR.say('It\'s beating!', 'good', 45); OR.emit('heart_restarted'); } }),
       stitchStep({ name: 'Stitch up',
         before: () => {
           halves.forEach(h => { const x0 = h.position.x; tween(0.7, u => { h.position.x = x0 * (1 - u); }); });

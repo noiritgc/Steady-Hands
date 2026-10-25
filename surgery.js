@@ -330,7 +330,7 @@ function patientTick() {
   pt.loss += pt.bleed * SAMPLE_DT;
   pt.bleed *= Math.pow(0.6, SAMPLE_DT);   // bleeding eases off (~60% left after a second) unless something keeps it going
   pt.stress *= Math.pow(0.5, SAMPLE_DT);
-  if (!pt.lost && (pt.loss > 1500 || vitals().sys < 55)) { pt.lost = true; logEvent({ event: 'or_patient_lost', loss: pt.loss }); }
+  if (!pt.lost && (pt.loss > 1500 || vitals().sys < 55)) { pt.lost = true; logEvent({ event: 'or_patient_lost', loss: pt.loss }); emit('patient_lost'); }
   const v = vitals();
   $('or-hr').textContent = pt.bypass && !pt.lost ? 'BYP' : v.hr.toFixed(0);
   $('or-bp').textContent = `${v.sys.toFixed(0)}/${v.dia.toFixed(0)}`;
@@ -498,16 +498,16 @@ const PROCS = [
       const tooDeep = tip[1] < SURFACE - CUT_BOTTOM;
       if (tooDeep) {
         pt.bleed = Math.max(pt.bleed, 30);
-        if (this.deepCount++ % 25 === 0) { say('TOO DEEP: bleeding!', 'bad'); alarm(); ouch(); }
+        if (this.deepCount++ % 25 === 0) { say('TOO DEEP: bleeding!', 'bad'); alarm(); ouch(); emit('too_deep'); }
         if (!this.pool) this.pool = bloodPool(tip, 0.2);
         growPool(this.pool, 1.4, 0.01);
       }
       if (d > 0.5) {   // cutting off the line
         pt.bleed = Math.max(pt.bleed, 8);
-        if (this.offCount++ % 30 === 0) say('Off the line', 'bad');
+        if (this.offCount++ % 30 === 0) { say('Off the line', 'bad'); emit('off_line'); }
         return null;
       }
-      if (this.progress === 0 && s > 0.06) { say('Start at the green dot', 'info'); return null; }
+      if (this.progress === 0 && s > 0.06) { say('Start at the green dot', 'info'); emit('start_at_dot'); return null; }
       if (s >= this.progress - 0.02 && s <= this.progress + 0.08) {
         this.progress = Math.max(this.progress, s);
         this.devs.push(d); this.depths.push(tip[1]);
@@ -515,6 +515,7 @@ const PROCS = [
         if (!last || Math.hypot(tip[0] - last[0], tip[2] - last[2]) > 0.1) { this.cutPts.push([tip[0], SURFACE, tip[2]]); procGroup.add(cutBlob(tip)); }
       }
       $('or-obj').textContent = `Incision ${(this.progress * 100).toFixed(0)}% · off the line by ${(d * 10).toFixed(1)} mm`;
+      if (this.progress > 0.5 && !this.half) { this.half = true; emit('halfway'); }
       return this.progress > 0.97 ? 'done' : null;
     },
     score(t) {
@@ -550,19 +551,23 @@ const PROCS = [
       this.clearA = hitA ? 0 : this.clearA + 1; this.clearN = hitN ? 0 : this.clearN + 1;
       if (hitA) {
         pt.bleed = Math.max(pt.bleed, 160);
-        if (!this.touchA) { this.arteryHits++; say('ARTERY HIT: haemorrhage!', 'bad', 40); alarm(); ouch(); logEvent({ event: 'or_artery_hit' }); if (!this.pool) this.pool = bloodPool(tip, 0.4); }
+        if (!this.touchA) { this.arteryHits++; say('ARTERY HIT: haemorrhage!', 'bad', 40); alarm(); ouch(); emit('artery_hit'); logEvent({ event: 'or_artery_hit' }); if (!this.pool) this.pool = bloodPool(tip, 0.4); }
         if (this.pool) growPool(this.pool, 2.2, 0.02);
       }
-      if (hitN && !this.touchN) { this.nerveHits++; pt.stress += 25; say('NERVE DAMAGE', 'bad', 40); alarm(); ouch(); logEvent({ event: 'or_nerve_hit' }); }
+      if (hitN && !this.touchN) { this.nerveHits++; pt.stress += 25; say('NERVE DAMAGE', 'bad', 40); alarm(); ouch(); emit('nerve_hit'); logEvent({ event: 'or_nerve_hit' }); }
+      if (!hitA && dA < 0.28 + 0.55 && tip[1] < SURFACE) emit('near_artery');   // close calls: the assistant warns
+      else if (!hitN && dN < 0.17 + 0.5 && tip[1] < SURFACE) emit('near_nerve');
       this.touchA = hitA || this.clearA < 10; this.touchN = hitN || this.clearN < 10;
       const dT = M.norm(M.sub(tip, this.T));
       this.closest = Math.min(this.closest, dT);
       if (!this.excised) {
+        setTarget(Math.max(0, dT - this.R), 'tumour');
         if (dT < this.R) {
+          if (this.excise === 0) emit('excising');
           this.excise += SAMPLE_DT;
           this.tumour.material.emissive = new THREE.Color(0x553366);
           if (Math.round(this.excise * 18.7) % 9 === 0) say(`Excising… ${(2 - this.excise).toFixed(1)} s`, 'info', 12);
-          if (this.excise >= 2) { this.excised = true; this.tumour.visible = false; say('Tumour removed: withdraw', 'good', 40); chime(); }
+          if (this.excise >= 2) { this.excised = true; this.tumour.visible = false; say('Tumour removed: withdraw', 'good', 40); chime(); emit('excised'); }
         } else this.tumour.material.emissive = new THREE.Color(0x000000);
         $('or-obj').textContent = `Distance to tumour ${(Math.max(0, dT - this.R) * 10).toFixed(0)} mm`;
       } else {
@@ -607,12 +612,15 @@ const PROCS = [
     tick() {
       if (tip[1] < SURFACE) { this.angErrs.push(M.angleDeg(dir, this.A)); }
       const dT = M.norm(M.sub(tip, this.T));
+      setTarget(Math.max(0, dT - 0.3), 'nodule');
+      if (tip[1] < SURFACE && !this.angWarned && M.angleDeg(dir, this.A) > 15) { this.angWarned = true; emit('bad_angle', { deg: M.angleDeg(dir, this.A) }); }
       if (dT < 0.4) {
+        if (this.hold === 0) emit('hold_start', { secs: 3 });
         this.hold += SAMPLE_DT;
         const tr = tremorMm(); if (!isNaN(tr) && this.hold > 0.6) this.tremors.push(tr);   // after settling in
         if (Math.round(this.hold * 18.7) % 6 === 0) say(`Hold still… ${Math.max(0, 3 - this.hold).toFixed(1)} s`, 'info', 8);
-        if (this.hold >= 3) { say('Sample taken', 'good', 40); chime(); return 'done'; }
-      } else if (this.hold > 0) { this.hold = 0; say('Lost position: hold again', 'bad'); }
+        if (this.hold >= 3) { say('Sample taken', 'good', 40); chime(); emit('sample_taken'); return 'done'; }
+      } else if (this.hold > 0) { this.hold = 0; say('Lost position: hold again', 'bad'); emit('lost_position'); }
       const ang = tip[1] < SURFACE ? `angle off by ${M.angleDeg(dir, this.A).toFixed(0)}°` : `tilt ${tiltDeg().toFixed(0)}° (target 30°)`;
       $('or-obj').textContent = `Distance to nodule ${(Math.max(0, dT - 0.3) * 10).toFixed(0)} mm · ${ang}`;
       return null;
@@ -629,6 +637,11 @@ const PROCS = [
       return { rows, stats: { ang, tremor: tr, t } };
     } },
 ];
+
+// --- voice hooks: named game events for voice.js, plus how far the tip is from the current target ---
+const emit = (type, data = {}) => dispatchEvent(new CustomEvent('or-event', { detail: { type, data } }));
+let target = null;   // { d (cm to the target), what }
+const setTarget = (d, what) => { target = { d, what }; };
 
 // --- game flow ---
 let mode = 'menu', cur = null, curIdx = -1, sample = 0, procStart = 0, caseResults = [], soloRun = false;
@@ -663,7 +676,7 @@ function startProc(i) {
   mode = 'brief'; hud(true);
   $('or-title').textContent = cur.title; $('or-obj').textContent = cur.objective; $('or-timer').textContent = '';
 }
-function begin() { card(''); mode = 'play'; procStart = sample; playSamples = 0; logEvent({ event: 'or_start', proc: cur.id }); }
+function begin() { card(''); mode = 'play'; procStart = sample; playSamples = 0; logEvent({ event: 'or_start', proc: cur.id }); emit('proc_start', { id: cur.id, title: cur.title, op: !!cur.op }); }
 let playSamples = 0;
 function finish(outcome) {
   const t = playSamples * SAMPLE_DT;
@@ -673,6 +686,7 @@ function finish(outcome) {
   let points = Math.max(0, Math.round(rows.reduce((a, r) => a + r[2], 0)));
   if (outcome !== 'done') points = Math.min(points, outcome === 'lost' ? 0 : 300);
   const res = { id: cur.id, title: cur.title, outcome, points, grade: grade(points), stats, loss: pt.loss };
+  emit('proc_end', { outcome, grade: res.grade, points });
   caseResults.push(res);
   logEvent({ event: 'or_result', ...res });
   mode = 'result';
@@ -746,6 +760,7 @@ addEventListener('magnet', e => {
   playSamples++;
   const t = playSamples * SAMPLE_DT;
   $('or-timer').textContent = `${t.toFixed(1)} s / ${cur.limit} s`;
+  target = null;   // the procedure sets it again this sample if it has one
   const r = cur.tick();
   patientTick();
   if (pt.lost) finish('lost');
@@ -779,6 +794,11 @@ window.MagTrackOR = {
   offFrame(fn) { const i = frameHooks.indexOf(fn); if (i >= 0) frameHooks.splice(i, 1); },
   register(op) { PROCS.push(op); },
   procs: () => PROCS.map((p, i) => ({ index: i, id: p.id, title: p.title, op: !!p.op })),
+  emit, setTarget, vitals,
+  get target() { return target; },
+  get playing() { return open && mode === 'play'; },
+  get open() { return open; },
+  timeLeft: () => (cur && mode === 'play' ? cur.limit - playSamples * SAMPLE_DT : null),
   root,
   onResult: null,   // set by attending.js: (result, rows) => void
 };
