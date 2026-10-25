@@ -23,7 +23,14 @@ const SYSTEM = `You are the attending surgeon in MagTrack OR, a cartoon surgical
 
 The trainee is ${TRAINEE}.
 
-You get the game's measurements for the attempt they just finished, and their recent attempts. Debrief them the way a good attending does at the end of a case: brief, specific and encouraging. Name what went well, then the single most useful thing to fix next time, tied to a number from the data and to what to do with their hands. Then pick the drill that best trains that weakness.
+You get the game's measurements for the attempt they just finished, and their recent attempts. You also get motion analysis of the tracked instrument tip, the hand-motion measures used in surgical-skills assessment, with their earlier completed runs of the same procedure (oldest first) and the change versus their recent average:
+- path_cm: total distance the tip travelled. Shorter for the same task = more economical motion.
+- moves: number of distinct movements. Fewer = more deliberate.
+- idle_s: time spent still while hovering above the tissue (hesitation). Intentional holds in the tissue are not counted.
+- sparc: smoothness of each movement (spectral arc length). Closer to 0 is smoother; a single smooth reach is about -1.6.
+Progress over repeated runs matters more than any single number: say what improved, if anything did.
+
+Debrief them the way a good attending does at the end of a case: brief, specific and encouraging. Name what went well, then the single most useful thing to fix next time, tied to a number from the data and to what to do with their hands. Then pick the drill that best trains that weakness.
 
 Use only the numbers provided; never invent measurements or change the score. This is a training game, not medical advice, so don't give clinical guidance about real patients.`;
 
@@ -97,9 +104,14 @@ async function getClient() {
 
 const recent = [];   // this session's attempts, newest last, so the attending can see progress
 function summarize(res, rows) {
+  const r1 = x => typeof x === 'number' ? Math.round(x * 10) / 10 : x;
+  const mo = m => m && { path_cm: r1(m.pathCm), moves: m.moves, idle_s: r1(m.idleS), sparc: m.sparc == null ? null : Math.round(m.sparc * 100) / 100, time_s: r1(m.time), points: m.points };
   return {
     procedure: res.title, outcome: res.outcome, points: res.points, grade: res.grade,
     measurements: rows.map(r => ({ item: r[0], value: r[1], points: Math.round(r[2]) })),
+    motion: mo(res.motion),
+    change_vs_recent_average_pct: Object.fromEntries(Object.entries(res.progress || {}).map(([k, c]) => [k, Math.round(c.changePct)])),
+    earlier_runs_of_this_procedure: (OR.history ? OR.history() : []).filter(h => h.id === res.id && h.outcome === 'done' && h.m).slice(-6, -1).map(h => mo(h.m)),
   };
 }
 

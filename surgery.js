@@ -54,6 +54,11 @@ css.textContent = `
   #or .tipmark { position: absolute; left: -16px; width: 66px; height: 12px; margin-top: -6px; background: #ffb000; border: 3px solid var(--ink); border-radius: 8px; }
   #or .gauge .lbl { color: #7a7394; font: 800 11px ui-rounded, system-ui; text-transform: uppercase; letter-spacing: .5px; }
   #or .gauge b { font: 900 22px ui-rounded, system-ui; display: block; margin-bottom: 4px; }
+  #or .gauge .mot { border-top: 2px dashed #e2ddef; margin-top: 6px; padding-top: 6px; }
+  #or .gauge .mot b { font-size: 17px; }
+  #or .card td.up { color: #1f9d55; } #or .card td.down { color: #d64545; } #or .card td.dim { color: #9b95b8; font-weight: 700; }
+  #or .trend { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0 2px; font: 800 12px ui-rounded, system-ui; color: #7a7394; }
+  #or .trend svg { display: block; margin-top: 2px; }
   #or .msg { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); font: 900 54px ui-rounded, system-ui; color: #fff;
         text-shadow: 0 5px 0 var(--ink), 0 0 4px var(--ink), 0 0 4px var(--ink); pointer-events: none; text-align: center; white-space: nowrap; }
   #or .msg.bad { color: #ff5a6e; } #or .msg.good { color: #5bd68a; } #or .msg.info { color: #ffc24d; }
@@ -100,7 +105,8 @@ root.innerHTML = `
     <div class="spo2"><span>SpO₂</span><i id="or-spo2">98</i></div><div class="loss"><span>BLOOD LOSS mL</span><i id="or-loss">0</i></div></div></div>
   <div class="gauge"><div class="lbl">tip depth</div>
     <div class="bar" id="or-bar"><div class="deep" id="or-deep"></div><div class="band" id="or-band"></div><div class="surf" id="or-surf"></div><div class="tipmark" id="or-tip"></div></div>
-    <div class="lbl">below surface</div><b id="or-depth">—</b><div class="lbl">tremor</div><b id="or-tremor">—</b><div class="lbl">tilt</div><b id="or-tilt">—</b></div>
+    <div class="lbl">below surface</div><b id="or-depth">—</b><div class="lbl">tremor</div><b id="or-tremor">—</b><div class="lbl">tilt</div><b id="or-tilt">—</b>
+    <div class="mot"><div class="lbl">path</div><b id="or-path">—</b><div class="lbl">movements</div><b id="or-moves">—</b><div class="lbl">idle</div><b id="or-idle">—</b></div></div>
   <div class="facecam" id="or-face"><span>PATIENT CAM</span><b id="or-mood">sleeping peacefully</b></div>
   <div class="msg" id="or-msg"></div>
   <div class="nohand" id="or-nohand"></div>
@@ -754,7 +760,57 @@ function startProc(i) {
   mode = 'brief'; hud(true);
   $('or-title').textContent = cur.title; $('or-obj').textContent = cur.objective; $('or-timer').textContent = '';
 }
-function begin() { card(''); mode = 'play'; procStart = sample; playSamples = 0; logEvent({ event: 'or_start', proc: cur.id }); emit('proc_start', { id: cur.id, title: cur.title, op: !!cur.op }); }
+function begin() {
+  card(''); mode = 'play'; procStart = sample; playSamples = 0;
+  motionSamples = []; stillSince = sample * SAMPLE_DT; hesitated = false;
+  for (const id of ['or-path', 'or-moves', 'or-idle']) $(id).textContent = '—';
+  logEvent({ event: 'or_start', proc: cur.id }); emit('proc_start', { id: cur.id, title: cur.title, op: !!cur.op });
+}
+
+// --- motion analytics (motion.js): the tracked tip during play -> path length, movements, idle time, smoothness,
+// kept per procedure in this browser so the result card (and the attending and Riley) can show progress ---
+const MM = window.MotionMath;   // if motion.js didn't load, the game runs without analytics
+const HISTORY_KEY = 'magtrack.or.history';
+let motionSamples = [], stillSince = 0, hesitated = false;
+function loadHistory() { try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch (e) { return []; } }
+function saveHistory(h) { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(-300))); } catch (e) {} }
+function trackMotion() {
+  const now = sample * SAMPLE_DT, contact = tip[1] < aimY();
+  motionSamples.push({ t: now, p: tip.slice(), contact });
+  if (MM && playSamples % 6 === 0) {   // live readout; smoothness needs the whole run, so it waits for the result card
+    const m = MM.analyze(motionSamples, { sparc: false });
+    $('or-path').textContent = m.pathCm.toFixed(0) + ' cm'; $('or-moves').textContent = m.moves; $('or-idle').textContent = m.idleS.toFixed(0) + ' s';
+  }
+  // hesitating: hovering still above the tissue for 5 s (Riley nudges)
+  const back = motionSamples[motionSamples.length - 5];
+  const v = back && now - back.t < 0.5 ? M.norm(M.sub(tip, back.p)) / (now - back.t) : 0;
+  if (contact || v > 1) { stillSince = now; hesitated = false; }
+  else if (now - stillSince > 5 && !hesitated) { hesitated = true; emit('hesitating', { secs: now - stillSince }); }
+}
+const esc = x => String(x).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+function sparkline(vals, color) {
+  const w = 150, h = 34, lo = Math.min(...vals), hi = Math.max(...vals), r = hi - lo || 1;
+  const xy = vals.map((v, i) => [4 + i * (w - 8) / (vals.length - 1), h - 4 - (v - lo) / r * (h - 8)]);
+  const last = xy[xy.length - 1];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${xy.map(p => p.map(v => v.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="4.5" fill="${color}"/></svg>`;
+}
+function motionHtml(m, cmp, series) {
+  if (!m) return '';
+  const n = (Object.values(cmp)[0] || {}).n;
+  const cell = k => {
+    const c = cmp[k];
+    if (!c) return `<td class="dim">${n ? '—' : 'baseline'}</td>`;
+    const flat = Math.abs(c.changePct) < 3;
+    return `<td class="${flat ? 'dim' : c.improved ? 'up' : 'down'}">${c.changePct > 0 ? '+' : ''}${c.changePct.toFixed(0)}%${!flat && c.improved ? ' ✓' : ''}</td>`;
+  };
+  const rows = [['Path length', `${m.pathCm.toFixed(1)} cm`, 'pathCm'], ['Movements', m.moves, 'moves'], ['Idle (hesitation)', `${m.idleS.toFixed(1)} s`, 'idleS'],
+    ['Smoothness (SPARC)', m.sparc == null ? '—' : m.sparc.toFixed(2), 'sparc']];
+  const trend = series.length >= 2 ? `<div class="trend"><div>Score, last ${series.length} runs${sparkline(series.map(x => x.points), '#7e57c2')}</div>
+    <div>Path length (lower is better)${sparkline(series.map(x => x.pathCm), '#ff8a3d')}</div></div>` : '';
+  return `<h3>Motion analysis</h3><table><tr><td class="dim">measured from the tracked tip</td><td class="dim">this run</td><td class="dim">${n ? `vs your last ${n}` : 'first completed run'}</td></tr>
+    ${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td>${cell(r[2])}</tr>`).join('')}</table>${trend}
+    <p style="font-size:12px">Idle counts stillness above the tissue (holds in the tissue don't). Smoothness: closer to 0 is smoother.</p>`;
+}
 let playSamples = 0;
 function finish(outcome) {
   const t = playSamples * SAMPLE_DT;
@@ -764,7 +820,16 @@ function finish(outcome) {
   let points = Math.max(0, Math.round(rows.reduce((a, r) => a + r[2], 0)));
   if (outcome !== 'done') points = Math.min(points, outcome === 'lost' ? 0 : 300);
   const res = { id: cur.id, title: cur.title, outcome, points, grade: grade(points), stats, loss: pt.loss };
-  emit('proc_end', { outcome, grade: res.grade, points });
+  // motion analytics, compared with this procedure's earlier completed runs, then saved
+  const hist = loadHistory(), prev = hist.filter(h => h.id === cur.id && h.outcome === 'done' && h.m).map(h => h.m);
+  const mo = MM && motionSamples.length > 5 ? MM.analyze(motionSamples) : null;
+  const metrics = mo && { pathCm: mo.pathCm, moves: mo.moves, idleS: mo.idleS, sparc: mo.sparc, time: t, points };
+  const cmp = metrics && outcome === 'done' ? MM.compare(metrics, prev) : {};
+  const best = MM ? MM.bestImprovement(cmp) : null;
+  if (metrics) { hist.push({ id: cur.id, when: new Date().toISOString(), outcome, m: metrics }); saveHistory(hist); }
+  Object.assign(res, { motion: metrics, progress: cmp, priorRuns: prev.length });
+  const series = outcome === 'done' && metrics ? prev.slice(-9).concat([metrics]) : [];
+  emit('proc_end', { outcome, grade: res.grade, points, improve: best && { key: best.key, pct: Math.round(best.gainPct) } });
   caseResults.push(res);
   logEvent({ event: 'or_result', ...res });
   mode = 'result';
@@ -772,6 +837,7 @@ function finish(outcome) {
   const last = soloRun || outcome === 'lost' || curIdx >= nTraining() - 1;
   card(`<div class="grade">${res.grade}</div>${head}<p>${cur.title} · <b>${points}</b> points</p>
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2] >= 0 ? '+' : ''}${Math.round(r[2])}</td></tr>`).join('')}</table>
+    ${motionHtml(metrics, cmp, series)}
     <button data-go="${last ? 'report' : 'next'}">${last ? 'Case report (Enter)' : 'Next procedure (Enter)'}</button>
     <div id="or-debrief"></div>`);
   if (outcome === 'done') chime(); else alarm();
@@ -840,6 +906,7 @@ addEventListener('magnet', e => {
   $('or-timer').textContent = `${t.toFixed(1)} s / ${cur.limit} s`;
   target = null;   // the procedure sets it again this sample if it has one
   const r = cur.tick();
+  trackMotion();
   patientTick();
   if (pt.lost) finish('lost');
   else if (r === 'done') finish('done');
@@ -865,7 +932,7 @@ window.MagTrackOR = {
   SURFACE, SAMPLE_DT, V3, clay, solid, blob, tube, wobble, dots, curvePts, distToPolyline, bloodPool, growPool, cutBlob, grooveFill,
   say, alarm, chime, tone, ouch, logEvent, tremorMm, setTool,
   group: procGroup, scene: scene3, skinMat,
-  get tip() { return tip; }, get dir() { return dir; }, get cut() { return cut; }, get pt() { return pt; }, get sample() { return sample; },
+  get tip() { return tip; }, get dir() { return dir; }, get cut() { return cut; }, history: loadHistory, get pt() { return pt; }, get sample() { return sample; },
   setObjective(text) { $('or-obj').textContent = text; },
   registerTool(name, meshes) { toolModels[name] = meshes; },
   onFrame(fn) { frameHooks.push(fn); },

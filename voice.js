@@ -86,7 +86,8 @@ const LINES = {
   bypass_on: { pri: P.guide, cd: 0, lines: ['Okay, we\'re on bypass. The heart\'s stopped now, so the clock is running.'], emotion: 'determined' },
   heart_restarted: { pri: P.crit, cd: 0, lines: ['There it is! We\'ve got a heartbeat!'], emotion: 'excited', speed: 1.1 },
   patient_lost: { pri: P.crit, cd: 0, maxAge: 6000, lines: ['We\'ve lost the patient.'], emotion: 'sad', speed: 0.9 },
-  proc_end: { pri: P.crit, cd: 0, maxAge: 6000, lines: [d => d.outcome === 'done' ? (d.points >= 800 ? 'And we\'re done. Outstanding work, Doctor.' : 'That\'s it, we\'re done. Good job, Doctor.') : d.outcome === 'timeout' ? 'That\'s time, I\'m afraid.' : ''] },
+  proc_end: { pri: P.crit, cd: 0, maxAge: 6000, lines: [d => d.outcome === 'done' ? (d.points >= 800 ? 'And we\'re done. Outstanding work, Doctor.' : 'That\'s it, we\'re done. Good job, Doctor.') + improvement(d.improve) : d.outcome === 'timeout' ? 'That\'s time, I\'m afraid.' : ''] },
+  hesitating: { pri: P.guide, cd: 20000, lines: ['Take your time. Have a good look, then commit.', 'When you\'re ready, Doctor. Small, deliberate movements.'] },
   // from the live monitors below
   approach: { pri: P.chatter, cd: 7000, lines: [d => `Getting close to the ${d.what} now.`, d => `The ${d.what} is just ahead.`] },
   almost: { pri: P.guide, cd: 6000, lines: [d => `Nearly at the ${d.what}. Slow right down.`, 'Almost there. Gently now.'] },
@@ -99,6 +100,18 @@ const LINES = {
   time_call: { pri: P.warn, cd: 0, maxAge: 1500, lines: [d => `${d.words} seconds left.`], emotion: 'determined' },
   count: { pri: P.crit, cd: 0, maxAge: 700, lines: [d => d.words + '!'], speed: 1.25, emotion: 'determined' },
 };
+// the clearest gain over the trainee's recent runs (from motion.js via the game), said after the result
+function improvement(im) {
+  if (!im) return '';
+  const pct = im.pct;
+  return ' ' + ({
+    pathCm: `That's ${pct} percent less wasted motion than your average.`,
+    moves: `${pct} percent fewer movements than your average. Very economical.`,
+    idleS: `And ${pct} percent less hesitation than usual.`,
+    sparc: `Your movements were ${pct} percent smoother than your average.`,
+    time: `${pct} percent quicker than your average, too.`,
+  }[im.key] || '');
+}
 const WORDS = { 30: 'Thirty', 15: 'Fifteen', 10: 'Ten', 5: 'Five', 4: 'Four', 3: 'Three', 2: 'Two', 1: 'One' };
 
 // --- speech output: Cartesia via server.js, the browser's own voice as a fallback, or off ---
