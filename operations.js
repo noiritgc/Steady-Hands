@@ -971,7 +971,8 @@ operation({
         after: () => { const red = new THREE.Color(0xb3122e), m = packs[1].material = clay(0xffffff, 0.8); tween(2.5, u => m.color.setRGB(1, 1, 1).lerp(red, u)); OR.say('Upper left pack is soaking through', 'bad', 40); OR.emit('soaked_pack'); } }),
       grabStep({ name: 'Lift the soaked pack', obj: { get position() { return packs[1].position; } }, what: 'soaked pack', lift: true, radius: 0.7,
         after: () => { flyTo(packs[1], V3(4.7, SURFACE + 0.45, 2.6)); const b = pool(1.5, 1.92, -2.3, 0.4); tween(1.5, u => b.scale.set(0.4 + 0.4 * u, 0.1, 0.4 + 0.4 * u)); OR.emit('spleen_found'); } }),
-      dragStep({ name: 'Free the spleen', y: 2.05, handles: [{ obj: spleen, from: [1.95, -2.5], to: [1.55, -2.2] }] }),
+      // knob on the spleen's inner edge, inside the opening and above the spleen and blood pool (further out the skin hides it)
+      dragStep({ name: 'Free the spleen', y: 2.35, handles: [{ obj: spleen, from: [1.2, -2.25], to: [0.8, -1.95] }] }),
       holdStep({ name: 'Clamp the splenic vessels', tool: 'clamp', what: 'vessel', points: hilum, sec: 1.2, make: clampAt,
         after: () => { spleenClamped = true; OR.pt.bleed = 0; OR.say('Bleeding controlled', 'good', 45); OR.emit('bleeding_stopped'); } }),
       cutStep({ name: 'Cut it free', line: curvePts([[0.8, 1.95, -2.65], [0.8, 1.95, -1.75]], 20), band: [1.7, 2.1], markY: 2.0, groove: false,
