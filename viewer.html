@@ -5,25 +5,56 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MagTrack Viewer</title>
 <style>
-  :root { --bg: #0f1115; --panel: #1a1d24; --text: #e6e8ec; --muted: #8a909c; --accent: #4da3ff; }
+  :root { --bg: #0f1115; --panel: #1a1d24; --text: #e6e8ec; --muted: #8a909c; --accent: #4da3ff; --warn: #ffb547; --rec: #ff5a5a; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px system-ui, sans-serif; overflow: hidden; }
-  #ui { position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  button { background: var(--panel); color: var(--text); border: 1px solid #333844; border-radius: 6px; padding: 8px 14px; cursor: pointer; font: inherit; }
-  button:hover { border-color: var(--accent); }
-  #status { color: var(--muted); }
-  #readout { position: absolute; bottom: 12px; left: 12px; font: 12px ui-monospace, monospace; color: var(--muted); white-space: pre; }
+  #ui { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button, input, select { pointer-events: auto; background: var(--panel); color: var(--text); border: 1px solid #333844; border-radius: 6px; padding: 8px 14px; font: inherit; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.live { border-color: var(--rec); color: #ff9a9a; }
+  input { padding: 8px 10px; width: 210px; }
+  select { padding: 8px 6px; }
+  #status, #info { color: var(--muted); }
+  #boardmsg { color: var(--muted); font: 12px ui-monospace, monospace; }
+  #info.rec { color: #ff9a9a; }
+  #warn { color: var(--warn); white-space: pre-line; }
+  #readout { position: absolute; bottom: 12px; left: 12px; font: 12px ui-monospace, monospace; color: var(--muted); white-space: pre; pointer-events: none; }
+  #cal { position: absolute; top: 12px; right: 12px; width: 400px; max-width: calc(100% - 24px); box-sizing: border-box; background: var(--panel); border: 1px solid #333844; border-radius: 8px; padding: 14px 16px; display: none; line-height: 1.45; }
+  #cal h3 { margin: 0 0 8px; font-size: 15px; }
+  #cal p { margin: 6px 0; color: var(--muted); }
+  #cal .warn { color: var(--warn); }
+  #cal table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+  #cal td, #cal th { text-align: left; padding: 3px 6px 3px 0; vertical-align: top; }
+  #cal th { color: var(--muted); font-weight: normal; }
+  #cal .buttons { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
 <div id="ui">
-  <button id="connect">Connect</button>
-  <button id="zero">Zero (remove background)</button>
-  <span id="status">Chrome/Edge required &middot; not connected</span>
+  <div class="row">
+    <button id="connect">Connect</button>
+    <button id="zero">Zero (remove background)</button>
+    <button id="calibrate">Calibrate orientation</button>
+    <button id="record">Record</button>
+    <input id="note" placeholder="note, e.g. magnet over ch2, N down" disabled>
+    <button id="mark" disabled>Mark</button>
+    <button id="open">Open recording</button>
+    <select id="speed" title="Replay speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select>
+    <input id="file" type="file" accept=".log,.txt" hidden>
+  </div>
+  <div class="row"><span id="status">Chrome/Edge required &middot; not connected</span></div>
+  <div class="row"><span id="info"></span></div>
+  <div class="row"><span id="boardmsg"></span></div>
+  <div class="row"><span id="warn"></span></div>
 </div>
+<div id="cal"></div>
 <div id="readout"></div>
 
 <script src="vendor/three.min.js"></script>
 <script src="vendor/OrbitControls.js"></script>
+<script src="magmath.js"></script>
 <script>
 // Sensor positions in cm [x, z], Z order as mounted (negative z = top of the card). Index = mux channel.
 const SENSOR_POS = [
@@ -33,10 +64,28 @@ const SENSOR_POS = [
   [-1.7, 3.4],   // ch3 bottom left
   [1.7, 3.4],    // ch4 bottom right
 ];
+// Sensor axes -> scene (rows = scene x, y, z): sensor X -> -z (toward the top of the card), sensor Y -> -x (left),
+// sensor Z (out of chip) -> +y. Measured with a magnet over each chip (recordings/magtrack-20261024-214700.log).
+const AXIS_MAP = [[0, -1, 0], [0, 0, 1], [-1, 0, 0]];
+const ORIGINAL_AXIS_MAP = [[1, 0, 0], [0, 0, 1], [0, -1, 0]];   // what calibrations saved before 2026-10-24 were based on
+// Per-chip sensor -> scene matrices from "Calibrate orientation" (its "Copy" button gives the JSON to paste here).
+// null = every chip uses AXIS_MAP. A calibration applied in the browser overrides this.
+const SENSOR_CAL = null;
 const MIN_THRESH_UT = 50; // never show changes smaller than this (microtesla)
 const NOISE_MULT = 5;      // per-sensor threshold = NOISE_MULT x its measured noise
 const SMOOTH = 0.35;       // 0..1, lower = smoother but laggier
 const ZERO_SAMPLES = 25;   // samples averaged when zeroing (~1.5 s)
+const RAIL_UT = [24608, 24608, 39648];  // +-32767 counts x 0.751 / 0.751 / 1.210 uT: the end of each axis's range
+const BAD_SAMPLES = 10;    // ignore a chip for this many samples after it clips
+const ZERO_NOISE_MAX_UT = 6;   // noisier than this while zeroing (normally ~2) = a magnet moved nearby
+const STRONG_UT = 5000;    // after a field this strong a chip's zero can shift by ~20 uT
+const LEFTOVER_UT = 15, LEFTOVER_SAMPLES = 100;  // ~5 s of steady field above this on 2+ chips, no magnet found = stale zero
+const FIT_MIN_UT = 10;     // chips above this (or NOISE_MULT x noise) help fit the magnet, even below the arrow threshold
+const MIN_FIT_SENSORS = 3; // chips with a clear signal needed before fitting a magnet
+const FIT_MAX_ERR = 0.35;  // hide the magnet when the model misses the readings by more than this (relative)
+const MAX_ARROW = 2.5;     // cm
+const CAL_KEY = 'magtrack.cal.v1';
+const M = MagMath;
 
 // --- scene ---
 const scene = new THREE.Scene();
@@ -51,7 +100,8 @@ const controls = new THREE.OrbitControls(camera, renderer.domElement);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 1));
 scene.add(new THREE.GridHelper(12, 12, 0x333844, 0x22252d));
 
-const board = new THREE.Mesh(new THREE.BoxGeometry(6, 0.15, 10), new THREE.MeshStandardMaterial({ color: 0x1d5c3a }));
+// see-through, so arrows pointing down into the board stay visible
+const board = new THREE.Mesh(new THREE.BoxGeometry(6, 0.15, 10), new THREE.MeshStandardMaterial({ color: 0x1d5c3a, transparent: true, opacity: 0.55, depthWrite: false }));
 board.position.y = -0.1;
 scene.add(board);
 
@@ -66,14 +116,27 @@ const sensors = SENSOR_POS.map(([x, z], i) => {
   const chip = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.6), new THREE.MeshStandardMaterial({ color: 0x6a3fa0 }));
   chip.position.set(x, 0.05, z);
   scene.add(chip);
-  const l = label('ch' + i); l.position.set(x, -0.4, z + 0.6); scene.add(l);
+  const l = label('ch' + i); l.position.set(x, 0.3, z + 0.75); scene.add(l);
   const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), chip.position, 1, 0x4da3ff, 0.35, 0.2);
   arrow.visible = false; scene.add(arrow);
-  return { chip, arrow, pos: chip.position.clone(), on: false, thresh: 40 };
+  // faint arrow: the field the fitted magnet should make here
+  const model = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), chip.position, 1, 0xffffff, 0.3, 0.16);
+  for (const m of [model.line.material, model.cone.material]) { m.transparent = true; m.opacity = 0.3; }
+  model.visible = false; scene.add(model);
+  return { chip, arrow, model, pos: [x, 0.05, z], on: false, thresh: 40, noise: NaN, fitThresh: FIT_MIN_UT, last: null, badFor: 0, maxSeen: 0, prevField: null };
 });
 
-const ghost = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 16), new THREE.MeshStandardMaterial({ color: 0xff5a5a, transparent: true, opacity: 0.8 }));
-ghost.visible = false; scene.add(ghost);
+// Fitted magnet, drawn as a bar magnet: red half = north end.
+const magnet = new THREE.Group();
+for (const [color, y] of [[0xff5a5a, 0.3], [0x4d7dff, -0.3]]) {
+  const half = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.6, 20), new THREE.MeshStandardMaterial({ color }));
+  half.position.y = y; magnet.add(half);
+}
+magnet.visible = false; scene.add(magnet);
+// line straight down from the magnet to the board, so its position over the card is clear in perspective
+const drop = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+  new THREE.LineBasicMaterial({ color: 0xff5a5a, transparent: true, opacity: 0.5 }));
+drop.visible = false; scene.add(drop);
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -81,26 +144,76 @@ addEventListener('resize', () => {
 });
 (function loop() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); })();
 
+// --- calibration storage ---
+// Each chip's correction is kept but re-based on the current AXIS_MAP, so a calibration made with an older map
+// doesn't bring that map back.
+function loadCal() {
+  let c = null, source = 'browser';
+  try { c = JSON.parse(localStorage.getItem(CAL_KEY)); } catch (e) {}
+  if (!(c && c.C && c.C.length === SENSOR_POS.length)) { c = SENSOR_CAL; source = 'builtin'; }
+  return c && { C: M.remapAxes(c.C, c.axisMap || ORIGINAL_AXIS_MAP, AXIS_MAP), axisMap: AXIS_MAP, when: c.when, source };
+}
+let cal = loadCal();
+const sensorMatrix = i => cal ? cal.C[i] : AXIS_MAP;
+
 // --- data ---
-let smoothed = null, baseline = null, zeroBuf = null;
-const statusEl = () => document.getElementById('status');
+let smoothed = null, baseline = null, zeroBuf = null, fit = null;
+const $ = id => document.getElementById(id);
+const statusEl = () => $('status');
 
-// Sensor axes -> scene: sensor X -> +x, sensor Y -> -z, sensor Z (out of chip) -> +y
-const toScene = (bx, by, bz) => new THREE.Vector3(bx, bz, -by);
+// --- warnings about the zero (background) going stale ---
+const warnings = { zero: null, strong: null, leftover: null };
+let leftoverCount = 0;
+function setWarning(kind, text) {
+  if (warnings[kind] === text) return;
+  if (text && !warnings[kind]) log('app', { event: 'warning', kind, text });
+  warnings[kind] = text;
+  $('warn').textContent = Object.values(warnings).filter(Boolean).map(w => '⚠ ' + w).join('\n');
+}
+const chipList = is => is.map(i => 'ch' + i).join(', ');
 
-function startZero() { zeroBuf = []; statusEl().textContent = 'zeroing — keep magnets away…'; }
+// A noisy zero means something moved nearby while it was taken; that field is now baked into the background.
+function checkZero() {
+  const bad = sensors.map((_, i) => i).filter(i => sensors[i].noise > ZERO_NOISE_MAX_UT);
+  setWarning('zero', bad.length ? `Zeroing was disturbed on ${chipList(bad)} (noise ${bad.map(i => sensors[i].noise.toFixed(0)).join(', ')} µT, normally about 2): a magnet moved nearby. Move magnets at least 50 cm away and click Zero again.` : null);
+  sensors.forEach(s => { s.maxSeen = 0; s.prevField = null; });
+  setWarning('strong', null); setWarning('leftover', null); leftoverCount = 0;
+}
+
+function startZero() { zeroBuf = []; statusEl().textContent = 'zeroing — keep magnets away…'; log('app', { event: 'zero_start' }); }
 
 // Average the collected samples into the baseline and set each sensor's threshold from its noise.
+// A sensor that misses some samples is averaged over the ones it has.
 function finishZero() {
-  baseline = zeroBuf[0].map((_, j) => zeroBuf.reduce((a, r) => a + r[j], 0) / zeroBuf.length);
+  baseline = zeroBuf[0].map((_, j) => {
+    const v = zeroBuf.map(r => r[j]).filter(x => !isNaN(x));
+    return v.length >= ZERO_SAMPLES / 4 ? v.reduce((a, x) => a + x, 0) / v.length : NaN;
+  });
   sensors.forEach((s, i) => {
-    const mags = zeroBuf.map(r => Math.hypot(...[0, 1, 2].map(k => r[i * 3 + k] - baseline[i * 3 + k])));
+    const mags = zeroBuf.map(r => Math.hypot(...[0, 1, 2].map(k => r[i * 3 + k] - baseline[i * 3 + k]))).filter(m => !isNaN(m));
     const rms = Math.sqrt(mags.reduce((a, m) => a + m * m, 0) / mags.length);
-    s.thresh = Math.max(MIN_THRESH_UT, NOISE_MULT * rms);
+    s.noise = rms;
+    s.thresh = isNaN(rms) ? MIN_THRESH_UT : Math.max(MIN_THRESH_UT, NOISE_MULT * rms);
+    s.fitThresh = isNaN(rms) ? FIT_MIN_UT : Math.max(FIT_MIN_UT, NOISE_MULT * rms);
   });
   zeroBuf = null;
   smoothed = baseline.slice();
+  checkZero();
   statusEl().textContent = 'ready · thresholds ' + sensors.map(s => s.thresh.toFixed(0)).join('/') + ' µT';
+  log('app', { event: 'zero_done', baseline, thresholds: sensors.map(s => s.thresh), noise: sensors.map(s => s.noise) });
+}
+
+function setArrow(arrow, v, thresh) {
+  const mag = M.norm(v), len = Math.min(MAX_ARROW, 0.6 * Math.log2(mag / thresh + 1) + 0.4);
+  arrow.setDirection(new THREE.Vector3(...M.normalize(v)));
+  arrow.setLength(len, Math.min(0.4, len * 0.35), 0.22);
+}
+
+const upVec = new THREE.Vector3(0, 1, 0);
+function describeDir(v) {
+  const names = [['right', 'left'], ['up', 'down'], ['toward the bottom of the card', 'toward the top of the card']];
+  const k = [0, 1, 2].reduce((b, i) => Math.abs(v[i]) > Math.abs(v[b]) ? i : b, 0);
+  return names[k][v[k] > 0 ? 0 : 1];
 }
 
 function update(raw) {
@@ -111,100 +224,388 @@ function update(raw) {
     return;
   }
   if (!baseline) return;
+
+  // A reading at the end of its range, or one that jumped from one end to the other, has a wrong direction.
+  sensors.forEach((s, i) => {
+    const v = raw.slice(i * 3, i * 3 + 3);
+    const clipped = v.some((x, k) => Math.abs(x) >= 0.97 * RAIL_UT[k]);
+    const wrapped = s.last && v.some((x, k) => Math.abs(x - s.last[k]) > 1.2 * RAIL_UT[k]);
+    if (clipped || wrapped) s.badFor = BAD_SAMPLES; else if (s.badFor) s.badFor--;
+    s.last = v;
+  });
+
   smoothed = smoothed.map((v, j) => isNaN(raw[j]) ? NaN : isNaN(v) ? raw[j] : v + SMOOTH * (raw[j] - v));
   const fields = sensors.map((s, i) => {
     const d = [0, 1, 2].map(k => smoothed[i * 3 + k] - baseline[i * 3 + k]);
-    return d.some(isNaN) ? null : toScene(...d);
+    return d.some(isNaN) ? null : M.matVec(sensorMatrix(i), d);
   });
   // hysteresis: turn on above threshold, off below 70% of it, so arrows don't flicker
   sensors.forEach((s, i) => {
-    const m = fields[i] ? fields[i].length() : 0;
+    const m = fields[i] ? M.norm(fields[i]) : 0;
     s.on = s.on ? m > 0.7 * s.thresh : m > s.thresh;
   });
 
-  // Rough magnet position: point closest to every sensor's field line, weighted by strength.
-  const A = new THREE.Matrix3().set(0, 0, 0, 0, 0, 0, 0, 0, 0), b = new THREE.Vector3();
-  let wsum = 0;
-  fields.forEach((f, i) => {
-    if (!sensors[i].on) return;
-    const d = f.clone().normalize(), w = f.length(), p = sensors[i].pos;
-    const m = [1 - d.x * d.x, -d.x * d.y, -d.x * d.z, -d.y * d.x, 1 - d.y * d.y, -d.y * d.z, -d.z * d.x, -d.z * d.y, 1 - d.z * d.z];
-    A.elements.forEach((_, k) => A.elements[k] += w * m[k]);
-    b.x += w * (m[0] * p.x + m[1] * p.y + m[2] * p.z);
-    b.y += w * (m[3] * p.x + m[4] * p.y + m[5] * p.z);
-    b.z += w * (m[6] * p.x + m[7] * p.y + m[8] * p.z);
-    wsum += w;
-  });
-  let target = null;
-  // need at least two strong sensors before guessing a position
-  const strong = sensors.filter((s, i) => s.on && fields[i].length() > 2 * s.thresh).length;
-  if (wsum > 0 && strong >= 2) {
-    // small pull toward a point above the board keeps it stable with few active sensors
-    const reg = 0.05 * wsum;
-    A.elements[0] += reg; A.elements[4] += reg; A.elements[8] += reg;
-    b.add(new THREE.Vector3(0, 2, 0).multiplyScalar(reg));
-    target = b.applyMatrix3(A.clone().invert());
-    target.clampLength(0, 12);
+  // Magnet: the one dipole (position + north-pole direction) that best explains every chip with a clear signal.
+  // Chips below the arrow threshold still count, since a small magnet only lights up the chip under it.
+  const use = sensors.map((_, i) => i).filter(i => fields[i] && !sensors[i].badFor && M.norm(fields[i]) > sensors[i].fitThresh);
+  const anyOn = sensors.some(s => s.on && !s.badFor);
+  let next = null;
+  if (anyOn && use.length >= MIN_FIT_SENSORS) {
+    const pos = use.map(i => sensors[i].pos), B = use.map(i => fields[i]);
+    const w = use.map(i => 1 / (M.norm(fields[i]) + sensors[i].fitThresh));   // relative error, so the nearest chip doesn't dominate
+    next = fit && M.fitDipole(pos, B, w, [fit.pos]);
+    if (!next || next.rel > FIT_MAX_ERR) next = M.fitDipole(pos, B, w, M.dipoleSeeds(pos, B).concat(fit ? [fit.pos] : []));
+    if (next && next.rel > FIT_MAX_ERR) next = null;
   }
-  if (target) {
-    if (ghost.visible) ghost.position.lerp(target, 0.25); else ghost.position.copy(target);
-  }
-  ghost.visible = !!target;
+  fit = next;
 
-  fields.forEach((f, i) => {
-    const { arrow, chip, pos, on, thresh } = sensors[i];
-    const mag = f ? f.length() : 0;
-    arrow.visible = on;
-    chip.material.color.set(f ? (on ? 0xb07cff : 0x6a3fa0) : 0x444444);
-    if (!on) return;
-    const dir = f.clone().normalize();
-    if (ghost.visible && dir.dot(ghost.position.clone().sub(pos)) < 0) dir.negate();   // point toward the source
-    const len = Math.min(4, 0.6 * Math.log2(mag / thresh + 1) + 0.4);
-    arrow.setDirection(dir);
-    arrow.setLength(len, Math.min(0.4, len * 0.35), 0.22);
-    arrow.setColor(new THREE.Color().setHSL(0.6 - Math.min(1, mag / 3000) * 0.6, 1, 0.55));
+  // A chip that has seen a very strong field may now read a little off; remind once the magnet is away.
+  sensors.forEach((s, i) => { if (fields[i]) s.maxSeen = Math.max(s.maxSeen, M.norm(fields[i])); });
+  const strong = sensors.map((_, i) => i).filter(i => sensors[i].maxSeen > STRONG_UT);
+  if (strong.length && !fit)
+    setWarning('strong', `${chipList(strong)} saw ${strong.map(i => (sensors[i].maxSeen / 1000).toFixed(1)).join(', ')} mT up close; a field that strong can shift a chip's zero by ~20 µT. With magnets away, click Zero.`);
+  // Steady field on 2+ chips that no magnet explains: a magnet parked nearby, or the zero no longer matches.
+  const steady = sensors.map((_, i) => i).filter(i => {
+    const s = sensors[i], f = fields[i], still = f && s.prevField && M.norm(M.sub(f, s.prevField)) < 5;
+    s.prevField = f;
+    return still && M.norm(f) > LEFTOVER_UT;   // fixed: a disturbed zero inflates the noise-based thresholds
   });
+  leftoverCount = !fit && steady.length >= 2 ? leftoverCount + 1 : 0;
+  if (leftoverCount >= LEFTOVER_SAMPLES)
+    setWarning('leftover', `${chipList(steady)} still read ${steady.map(i => M.norm(fields[i]).toFixed(0)).join(', ')} µT with no magnet found: a magnet is parked nearby or the background changed. Move magnets away and click Zero.`);
+  else if (!leftoverCount) setWarning('leftover', null);
+  if (fit) {
+    const p = new THREE.Vector3(...fit.pos), q = new THREE.Quaternion().setFromUnitVectors(upVec, new THREE.Vector3(...M.normalize(fit.m)));
+    if (magnet.visible) { magnet.position.lerp(p, 0.35); magnet.quaternion.slerp(q, 0.35); }
+    else { magnet.position.copy(p); magnet.quaternion.copy(q); }
+    const d = drop.geometry.attributes.position, mp = magnet.position;
+    d.setXYZ(0, mp.x, mp.y, mp.z); d.setXYZ(1, mp.x, 0, mp.z); d.needsUpdate = true;
+  }
+  magnet.visible = drop.visible = !!fit;
 
-  document.getElementById('readout').textContent = fields.map((f, i) =>
-    `ch${i} ` + (f ? `|ΔB| ${f.length().toFixed(0).padStart(5)} µT  (threshold ${sensors[i].thresh.toFixed(0)})` : 'missing')).join('\n');
+  const lines = fields.map((f, i) => {
+    const s = sensors[i];
+    const pred = fit && M.dipoleField(M.sub(s.pos, fit.pos), fit.m);
+    s.arrow.visible = s.on && !s.badFor;
+    s.model.visible = !!(pred && f && M.norm(pred) > s.thresh);
+    s.chip.material.color.set(!f ? 0x444444 : s.badFor ? 0xff9a3c : s.on ? 0xb07cff : 0x6a3fa0);
+    if (s.model.visible) setArrow(s.model, pred, s.thresh);
+    if (s.arrow.visible) {
+      const mag = M.norm(f);
+      setArrow(s.arrow, f, s.thresh);
+      s.arrow.setColor(new THREE.Color().setHSL(0.6 - Math.min(1, mag / 3000) * 0.6, 1, 0.55));
+    }
+    if (!f) return `ch${i} ` + (isNaN(raw[i * 3]) ? 'missing' : 'no baseline — click Zero');
+    if (s.badFor) return `ch${i} CLIPPED — reading at the end of its range, ignored`;
+    const model = use.includes(i) && pred ? `  model ${M.angleDeg(f, pred).toFixed(0).padStart(3)}° off` : '';
+    return `ch${i} |ΔB| ${M.norm(f).toFixed(0).padStart(5)} µT  (threshold ${s.thresh.toFixed(0)})${model}`;
+  });
+  if (fit) lines.push(`magnet at (${fit.pos.map(v => v.toFixed(1)).join(', ')}) cm · north end points ${describeDir(fit.m)} · model error ${(fit.rel * 100).toFixed(0)}%`);
+  else if (anyOn) lines.push(use.length < MIN_FIT_SENSORS ? `magnet: needs ${MIN_FIT_SENSORS} chips with a clear signal` : 'magnet: readings don\'t fit a single magnet');
+  $('readout').textContent = lines.join('\n');
 }
 
-document.getElementById('zero').onclick = startZero;
+function handleLine(line) {
+  if (line.startsWith('#')) { $('boardmsg').textContent = 'board: ' + line.slice(1).trim(); return; }
+  const vals = M.parseSample(line);
+  if (!vals) return;
+  if (calib) { calib[calib.phase].push(vals); calCount(); }
+  update(vals);
+}
 
-document.getElementById('connect').onclick = async () => {
-  const status = document.getElementById('status');
+// --- serial ---
+let port = null, reader = null;
+
+async function connect() {
+  const status = statusEl();
   if (!('serial' in navigator)) { status.textContent = 'Web Serial not supported — use Chrome or Edge'; return; }
+  if (replay) stopReplay();
   try {
-    const port = await navigator.serial.requestPort();
+    port = await navigator.serial.requestPort();
     await port.open({ baudRate: 115200 });
     await port.setSignals({ dataTerminalReady: true });   // CircuitPython only sends when DTR is set
-    baseline = null;
-    startZero();
-    const reader = port.readable.pipeThrough(new TextDecoderStream()).getReader();
-    let buf = '', lineCount = 0, lastLine = '';
-    const watchdog = setInterval(() => {   // diagnose a silent board while zeroing
-      if (zeroBuf && zeroBuf.length === 0)
-        status.textContent = `waiting for data — ${lineCount} lines received` + (lastLine ? `, last: "${lastLine.slice(0, 60)}"` : '');
-    }, 1000);
+  } catch (e) {
+    status.textContent = 'error: ' + e.message;
+    if (port) { try { await port.close(); } catch (e2) {} }
+    port = null; return;
+  }
+  $('connect').textContent = 'Disconnect';
+  log('app', { event: 'connected', info: port.getInfo ? port.getInfo() : {} });
+  baseline = null;
+  startZero();
+  const decoder = new TextDecoderStream();
+  const piped = port.readable.pipeTo(decoder.writable).catch(() => {});
+  reader = decoder.readable.getReader();
+  let buf = '', lineCount = 0, lastLine = '';
+  const watchdog = setInterval(() => {   // diagnose a silent board while zeroing
+    if (zeroBuf && zeroBuf.length === 0)
+      status.textContent = `waiting for data — ${lineCount} lines received` + (lastLine ? `, last: "${lastLine.slice(0, 60)}"` : '');
+  }, 1000);
+  try {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
       buf += value;
       const lines = buf.split('\n'); buf = lines.pop();
       lineCount += lines.length;
-      if (lines.length) lastLine = lines[lines.length - 1].trim();
       if (/Code done running|Press any key to enter the REPL/.test(value)) {   // board's program stopped: Ctrl-D restarts it
         const w = port.writable.getWriter(); await w.write(new Uint8Array([4])); w.releaseLock();
       }
-      const last = lines.reverse().find(l => l.startsWith('B,'));   // only draw the newest sample
-      if (last) {
-        const vals = last.trim().split(',').slice(1).map(Number);
-        if (vals.length === 15) update(vals);
+      for (const l of lines) {   // every line is recorded and processed, not just the newest
+        const line = l.trim();
+        if (!line) continue;
+        lastLine = line;
+        log('dev', line);
+        handleLine(line);
       }
     }
-    clearInterval(watchdog);
-  } catch (e) { status.textContent = 'error: ' + e.message; }
+  } catch (e) { status.textContent = 'connection lost: ' + e.message; }
+  clearInterval(watchdog);
+  try { reader.releaseLock(); } catch (e) {}
+  await piped;
+  try { await port.close(); } catch (e) {}
+  log('app', { event: 'disconnected' });
+  port = reader = null;
+  $('connect').textContent = 'Connect';
+}
+
+$('connect').onclick = () => port ? reader && reader.cancel() : connect();
+$('zero').onclick = startZero;
+
+// --- recording: every line from the board plus viewer events, so a session can be re-analysed later ---
+// Format (see parseLog in magmath.js): "<ms>\t<kind>\t<text>", kind = dev | app | mark.
+const rec = { on: false, t0: 0, buf: [], handle: null, chunks: null, bytes: 0, name: '', timer: 0, flushing: Promise.resolve(), marks: 0 };
+
+function log(kind, data) {
+  if (!rec.on) return;
+  rec.buf.push(`${(performance.now() - rec.t0).toFixed(1)}\t${kind}\t${typeof data === 'string' ? data : JSON.stringify(data)}\n`);
+}
+
+// Written to disk every 2 s (reopening the file each time commits it), so a crash loses at most ~2 s.
+function flushRecording() {
+  rec.flushing = rec.flushing.then(async () => {
+    if (!rec.buf.length) return;
+    const chunk = rec.buf.join(''); rec.buf = [];
+    if (rec.chunks) { rec.chunks.push(chunk); rec.bytes += new Blob([chunk]).size; return; }
+    try {
+      const w = await rec.handle.createWritable({ keepExistingData: true });
+      await w.seek(rec.bytes); await w.write(chunk); await w.close();
+      rec.bytes += new Blob([chunk]).size;
+    } catch (e) {
+      rec.buf.unshift(chunk);
+      $('info').textContent = 'recording: write failed (' + e.message + '), retrying';
+    }
+  });
+  return rec.flushing;
+}
+
+function recInfo() {
+  if (!rec.on) return;
+  const s = (performance.now() - rec.t0) / 1000;
+  $('info').textContent = `● recording ${rec.name} · ${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')} · ${(rec.bytes / 1024).toFixed(0)} kB` + (rec.chunks ? ' · saved as a download when you stop' : '');
+}
+
+async function startRecording() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const name = `magtrack-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.log`;
+  rec.handle = null; rec.chunks = null;
+  if ('showSaveFilePicker' in window) {
+    try {
+      rec.handle = await showSaveFilePicker({ suggestedName: name, types: [{ description: 'MagTrack recording', accept: { 'text/plain': ['.log'] } }] });
+    } catch (e) { if (e.name === 'AbortError') return; }   // any other failure falls back to a download
+  }
+  if (!rec.handle) rec.chunks = [];
+  Object.assign(rec, { on: true, t0: performance.now(), bytes: 0, marks: 0, name: rec.handle ? rec.handle.name : name,
+    buf: ['# MagTrack recording v1 · <ms since start> TAB <kind> TAB <text> · kinds: dev = line from the board, app = viewer event (JSON), mark = note\n'] });
+  log('app', { event: 'start', wall: d.toISOString(), userAgent: navigator.userAgent,
+    config: { SENSOR_POS, AXIS_MAP, cal, MIN_THRESH_UT, NOISE_MULT, SMOOTH, ZERO_SAMPLES }, connected: !!port });
+  if (baseline && !zeroBuf) log('app', { event: 'zero_done', baseline, thresholds: sensors.map(s => s.thresh), noise: sensors.map(s => s.noise) });
+  rec.timer = setInterval(() => flushRecording().then(recInfo), 2000);
+  await flushRecording();
+  recUI(); recInfo();
+}
+
+async function stopRecording() {
+  log('app', { event: 'stop' });
+  rec.on = false; clearInterval(rec.timer);
+  await flushRecording();
+  if (rec.chunks) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(rec.chunks, { type: 'text/plain' })); a.download = rec.name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+  $('info').textContent = `saved ${rec.name} (${(rec.bytes / 1024).toFixed(0)} kB)`;
+  recUI();
+}
+
+function recUI() {
+  $('record').textContent = rec.on ? 'Stop recording' : 'Record';
+  $('record').classList.toggle('live', rec.on);
+  $('info').classList.toggle('rec', rec.on);
+  $('note').disabled = $('mark').disabled = !rec.on;
+  $('open').disabled = rec.on;
+  $('record').disabled = !!replay;
+}
+
+function addMark() {
+  if (!rec.on) return;
+  const note = $('note').value.trim() || `mark ${rec.marks + 1}`;
+  rec.marks++;
+  log('mark', note);
+  $('note').value = '';
+  $('boardmsg').textContent = `marked: ${note}`;
+}
+
+$('record').onclick = () => rec.on ? stopRecording() : startRecording();
+$('mark').onclick = addMark;
+$('note').onkeydown = e => { if (e.key === 'Enter') addMark(); };
+addEventListener('beforeunload', e => { if (rec.on) { flushRecording(); e.preventDefault(); e.returnValue = ''; } });
+
+// --- replay a recording through the same pipeline ---
+let replay = null;
+
+function stopReplay() {
+  replay = null;
+  $('open').textContent = 'Open recording';
+  recUI();
+}
+
+function replayEntry(e) {
+  if (e.kind === 'dev') handleLine(e.text);
+  else if (e.kind === 'mark') $('boardmsg').textContent = 'mark: ' + e.text;
+  else if (e.kind === 'app') {
+    const d = e.data || {};
+    if (d.event === 'zero_start') startZero();
+    else if (d.event === 'connected') baseline = null;
+    else if (d.event === 'zero_done' && !baseline && !zeroBuf && d.baseline) {   // recording began after zeroing
+      baseline = d.baseline.map(v => v === null ? NaN : v);
+      sensors.forEach((s, i) => {
+        s.thresh = (d.thresholds || [])[i] ?? MIN_THRESH_UT;
+        const n = (d.noise || [])[i];   // older recordings only have thresholds
+        s.fitThresh = n ? Math.max(FIT_MIN_UT, NOISE_MULT * n) : s.thresh > MIN_THRESH_UT ? s.thresh : FIT_MIN_UT;
+        s.noise = n ?? (s.thresh > MIN_THRESH_UT ? s.thresh / NOISE_MULT : NaN);
+      });
+      smoothed = baseline.slice();
+      checkZero();
+      statusEl().textContent = 'ready · baseline from recording';
+    }
+    else if (d.event === 'calib_tumble_start') calBegin();
+    else if (d.event === 'calib_spin_start') calSpin();
+    else if (d.event === 'calib_end') calFinish();
+    else if (d.event === 'calib_cancel') calClose();
+  }
+}
+
+async function startReplay(text, name) {
+  if (port) { statusEl().textContent = 'disconnect the board before replaying'; return; }
+  const entries = M.parseLog(text);
+  if (!entries.some(e => e.kind === 'dev')) { statusEl().textContent = `${name} is not a MagTrack recording`; return; }
+  const me = replay = { name };
+  $('open').textContent = 'Stop replay';
+  recUI();
+  baseline = zeroBuf = fit = calib = null;
+  sensors.forEach(s => { s.on = false; s.last = null; s.badFor = 0; });
+  statusEl().textContent = 'replaying — waiting for zeroing in the recording';
+  const end = entries[entries.length - 1].t;
+  let i = 0, vt = 0, last = performance.now();
+  while (i < entries.length && replay === me) {
+    const now = performance.now();
+    vt += (now - last) * +$('speed').value; last = now;
+    while (i < entries.length && entries[i].t <= vt) replayEntry(entries[i++]);
+    $('info').textContent = `replay ${name} · ${(Math.min(vt, end) / 1000).toFixed(1)} / ${(end / 1000).toFixed(1)} s`;
+    await new Promise(r => setTimeout(r, 16));
+  }
+  if (replay === me) { stopReplay(); $('info').textContent = `replay of ${name} finished`; }
+}
+
+$('open').onclick = () => replay ? stopReplay() : $('file').click();
+$('file').onchange = async () => {
+  const f = $('file').files[0];
+  $('file').value = '';
+  if (f) startReplay(await f.text(), f.name);
 };
+
+// --- orientation calibration (see calibrateTumble in magmath.js) ---
+let calib = null, calResult = null;
+const calEl = $('cal');
+
+function calOpen() { calResult = null; calEl.style.display = 'block'; calRender(); }
+function calClose() { if (calib) log('app', { event: 'calib_cancel' }); calib = calResult = null; calEl.style.display = 'none'; }
+function calBegin() { calib = { phase: 'tumble', tumble: [], spin: [] }; calResult = null; calEl.style.display = 'block'; log('app', { event: 'calib_tumble_start' }); calRender(); }
+function calSpin() { if (!calib) return; calib.phase = 'spin'; log('app', { event: 'calib_spin_start' }); calRender(); }
+function calFinish() {
+  if (!calib) return;
+  log('app', { event: 'calib_end' });
+  calResult = M.calibrateTumble(calib.tumble, calib.spin, AXIS_MAP);
+  calib = null; calRender();
+}
+function calApply() {
+  const round = C => C.map(r => r.map(x => +x.toFixed(4)));
+  cal = { C: calResult.C.map(round), axisMap: AXIS_MAP, when: new Date().toISOString(), source: 'browser' };
+  try { localStorage.setItem(CAL_KEY, JSON.stringify(cal)); } catch (e) {}
+  log('app', { event: 'calib_applied', cal });
+  calResult = null; calRender('Applied. Lay the board back down, keep magnets away and click Zero.');
+}
+function calReset() {
+  try { localStorage.removeItem(CAL_KEY); } catch (e) {}
+  cal = loadCal();
+  log('app', { event: 'calib_reset' });
+  calRender('Reset to the built-in orientation.');
+}
+function calCopy() {
+  navigator.clipboard.writeText(JSON.stringify({ C: cal.C, axisMap: cal.axisMap, when: cal.when })).then(
+    () => calRender('Copied. Paste it as SENSOR_CAL near the top of viewer.html to make it the default.'),
+    () => calRender('Copy failed; the browser blocked clipboard access.'));
+}
+function calCount() {
+  const n = calib[calib.phase].length, el = $('calcount');
+  if (el) el.textContent = `${n} samples (${(n / 20).toFixed(0)} s)` + (calib.phase === 'tumble' && n < 400 ? ' · keep going to at least 400' : '');
+  const next = $('calnext');
+  if (next) next.disabled = calib.phase === 'tumble' ? n < 200 : false;
+}
+
+function calRender(msg) {
+  const btn = (act, text, extra = '') => `<button data-act="${act}" ${extra}>${text}</button>`;
+  let h = '<h3>Calibrate orientation</h3>';
+  if (calib && calib.phase === 'tumble') {
+    h += `<p><b>1 of 2: tumble.</b> Keep magnets, phones and tools away. Slowly turn the board through every orientation: flip it over, stand it on each edge, tilt it every way. About 30–40 seconds.</p>
+      <p id="calcount"></p><div class="buttons">${btn('spin', 'Next: flat spin', 'id="calnext" disabled')}${btn('close', 'Cancel')}</div>`;
+  } else if (calib) {
+    h += `<p><b>2 of 2: flat spin.</b> Lay the board flat, chips facing up, and slowly turn it <b>clockwise</b> (seen from above) one full turn. This checks left/right isn't mirrored.</p>
+      <p id="calcount"></p><div class="buttons">${btn('finish', 'Finish')}${btn('close', 'Cancel')}</div>`;
+  } else if (calResult && calResult.error) {
+    h += `<p class="warn">Couldn't calibrate: ${calResult.error}.</p><div class="buttons">${btn('begin', 'Try again')}${btn('close', 'Close')}</div>`;
+  } else if (calResult) {
+    const r = calResult;
+    const tilt = s => s.measured ? `${s.tiltDeg.toFixed(0)}° ± ${s.uncDeg.toFixed(0)}°, applied`
+      : s.reliable ? `${s.tiltDeg.toFixed(1)}°, too small to matter` : `${s.tiltDeg.toFixed(0)}° ± ${s.uncDeg.toFixed(0)}°, not reliable`;
+    h += `<p>${r.samples} of ${r.total} samples used. Each chip compared with the others (the largest group that agrees, ${r.group.map(i => 'ch' + i).join(', ')}, is taken as correct).</p><table>
+      <tr><th>chip</th><th>orientation</th><th>small tilt</th><th>agreement</th></tr>` +
+      r.sensors.map((s, i) => !s.live ? `<tr><td>ch${i}</td><td colspan="3">${s.text}</td></tr>` :
+        `<tr><td>ch${i}</td><td${s.text !== 'matches the others' ? ' class="warn"' : ''}>${s.text}</td>
+        <td${s.reliable ? '' : ' class="warn"'}>${tilt(s)}</td><td${s.ratio > 2.5 ? ' class="warn"' : ''} title="disagreement with the other chips, in multiples of the noise (1 = perfect)">${s.ratio.toFixed(1)}× noise</td></tr>`).join('') + '</table>';
+    for (const w of r.warnings) h += `<p class="warn">${w}</p>`;
+    if (!r.spin) h += '<p class="warn">No flat-spin data, so left/right mirroring wasn\'t checked.</p>';
+    else if (Math.abs(r.spin.turnedDeg) < 180) h += `<p class="warn">Flat spin only turned ${Math.abs(r.spin.turnedDeg).toFixed(0)}°; mirroring not checked.</p>`;
+    else if (r.spin.turnedDeg > 0) h += `<p>Flat spin: ✓ axes are not mirrored. Vertical field ${r.spin.verticalUt.toFixed(0)} µT (${r.spin.verticalUt < 0 ? 'down, as in the northern hemisphere' : 'up, as in the southern hemisphere'}).</p>`;
+    else h += '<p class="warn">Flat spin turned the wrong way: either the board was spun counter-clockwise or every chip\'s axes are mirrored (AXIS_MAP is wrong). Record a session and run tools/analyze.js.</p>';
+    h += `<div class="buttons">${btn('apply', 'Apply')}${btn('begin', 'Redo')}${btn('close', 'Discard')}</div>`;
+  } else {
+    h += `<p>Measures how each chip is really mounted by turning the board in the Earth's field, which is the same at every chip. Takes about a minute. Recording at the same time keeps the raw data.</p>
+      <p>Using: ${cal ? (cal.source === 'builtin' ? 'SENSOR_CAL from viewer.html' : 'calibration from ' + new Date(cal.when).toLocaleString()) : 'the same axes for every chip (no calibration)'}.</p>
+      ${port || replay ? '' : '<p class="warn">Connect the board first.</p>'}
+      <div class="buttons">${btn('begin', 'Start', port || replay ? '' : 'disabled')}${cal ? btn('copy', 'Copy') : ''}${cal && cal.source === 'browser' ? btn('reset', 'Reset') : ''}${btn('close', 'Close')}</div>`;
+  }
+  if (msg) h += `<p>${msg}</p>`;
+  calEl.innerHTML = h;
+  if (calib) calCount();
+}
+
+calEl.onclick = e => {
+  const act = e.target.dataset && e.target.dataset.act;
+  ({ begin: calBegin, spin: calSpin, finish: calFinish, apply: calApply, reset: calReset, copy: calCopy, close: calClose })[act]?.();
+};
+$('calibrate').onclick = () => calEl.style.display === 'block' && !calib ? calClose() : calOpen();
 </script>
 </body>
 </html>
