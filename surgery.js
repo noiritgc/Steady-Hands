@@ -227,6 +227,15 @@ const grip = solid(new THREE.TorusGeometry(0.4, 0.09, 10, 28), clay(0xffffff, 0.
 tool.add(blade, neck, handle, capLo, capHi, grip);
 tool.visible = false;   // until the instrument is detected
 scene3.add(tool);
+// tools are swappable (operations.js registers saws, forceps, ...); each is a list of meshes built tip-at-origin
+const toolModels = { scalpel: [...tool.children] };
+let toolName = 'scalpel', toolPop = 0;
+function setTool(name) {
+  if (name === toolName || !toolModels[name]) return;
+  while (tool.children.length) tool.remove(tool.children[0]);
+  for (const k of toolModels[name]) tool.add(k);
+  toolName = name; toolPop = 1;   // pops in with a bounce
+}
 const plumb = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(0, 0, 0), V3(0, 1, 0)]), new THREE.LineBasicMaterial({ color: 0xffb000 }));
 scene3.add(plumb);
 const procGroup = new THREE.Group(); scene3.add(procGroup);
@@ -235,8 +244,12 @@ const procGroup = new THREE.Group(); scene3.add(procGroup);
 const wobblers = [];   // { mesh, base, amp, speed, phase }: squash-and-stretch, cleared with each procedure
 const wobble = (mesh, amp = 0.05, speed = 4) => { wobblers.push({ mesh, base: mesh.scale.clone(), amp, speed, phase: Math.random() * 6 }); return mesh; };
 const pulsers = [];    // materials that flash on each heartbeat
+const frameHooks = []; // per-frame callbacks from the current procedure (tweens, particles), cleared with it
 let pulse = 0, flinch = 0;
 function animate(t) {
+  toolPop *= 0.86;
+  tool.scale.setScalar(1 + 0.45 * toolPop);
+  for (const f of frameHooks.slice()) f(t);
   for (const w of wobblers) {
     const s = 1 + w.amp * Math.sin(t * w.speed + w.phase);
     w.mesh.scale.set(w.base.x * s, w.base.y / s, w.base.z * s);
@@ -305,7 +318,8 @@ const chime = () => { tone(880, 140); setTimeout(() => tone(1320, 260), 150); };
 
 // --- patient ---
 let pt;
-function resetPatient() { pt = { loss: 0, bleed: 0, stress: 0, lost: false, beatPhase: 0, trace: new Float32Array(512), head: 0 }; }
+// bypass: a heart-lung machine keeps the patient alive while the heart is stopped (heart surgery)
+function resetPatient() { pt = { loss: 0, bleed: 0, stress: 0, lost: false, bypass: false, beatPhase: 0, trace: new Float32Array(512), head: 0 }; }
 resetPatient();
 function vitals() {
   const hr = 72 + pt.loss * 0.045 + pt.stress, sys = 120 - pt.loss * 0.05, dia = 80 - pt.loss * 0.032;
@@ -318,7 +332,7 @@ function patientTick() {
   pt.stress *= Math.pow(0.5, SAMPLE_DT);
   if (!pt.lost && (pt.loss > 1500 || vitals().sys < 55)) { pt.lost = true; logEvent({ event: 'or_patient_lost', loss: pt.loss }); }
   const v = vitals();
-  $('or-hr').textContent = v.hr.toFixed(0);
+  $('or-hr').textContent = pt.bypass && !pt.lost ? 'BYP' : v.hr.toFixed(0);
   $('or-bp').textContent = `${v.sys.toFixed(0)}/${v.dia.toFixed(0)}`;
   $('or-spo2').textContent = v.spo2.toFixed(0);
   $('or-loss').textContent = pt.loss.toFixed(0);
@@ -337,18 +351,20 @@ function drawEcg() {
   for (let s = 0; s < steps; s++) {
     const before = pt.beatPhase;
     if (!pt.lost) pt.beatPhase = (pt.beatPhase + (v.hr / 60) * dt / steps) % 1;
-    if (!pt.lost && before < 0.31 && pt.beatPhase >= 0.31) { tone(v.spo2 > 92 ? 960 : 700, 45, 'sine', 0.06); pulse = 1; }
-    pt.trace[pt.head] = pt.lost ? 0 : ecgShape(pt.beatPhase);
+    const beating = !pt.lost && !pt.bypass;
+    if (beating && before < 0.31 && pt.beatPhase >= 0.31) { tone(v.spo2 > 92 ? 960 : 700, 45, 'sine', 0.06); pulse = 1; }
+    pt.trace[pt.head] = beating ? ecgShape(pt.beatPhase) : 0;
     pt.head = (pt.head + 1) % pt.trace.length;
   }
   if (pt.lost && open && now > flatTone) { tone(880, 900, 'sine', 0.05); flatTone = now + 900; }
   g.fillStyle = '#14121f'; g.fillRect(0, 0, cv.width, cv.height);
-  g.strokeStyle = pt.lost ? '#ff5a6e' : '#5ef08f'; g.lineWidth = 5; g.lineJoin = 'round'; g.beginPath();
+  g.strokeStyle = pt.lost ? '#ff5a6e' : pt.bypass ? '#6fd6ff' : '#5ef08f'; g.lineWidth = 5; g.lineJoin = 'round'; g.beginPath();
   for (let i = 0; i < pt.trace.length; i++) {
     const y = cv.height * 0.7 - pt.trace[(pt.head + i) % pt.trace.length] * cv.height * 0.55;
     i ? g.lineTo(i, y) : g.moveTo(i, y);
   }
   g.stroke();
+  if (pt.bypass && !pt.lost) { g.fillStyle = '#6fd6ff'; g.font = '900 30px ui-rounded, system-ui'; g.fillText('ON BYPASS', 16, 40); }
 }
 
 // --- instrument tracking ---
@@ -622,16 +638,26 @@ function hud(on) { for (const id of ['or-title', 'or-obj', 'or-timer']) $(id).st
 
 function menu() {
   mode = 'menu'; cur = null; clearProc(); hud(false);
+  const ops = PROCS.map((p, i) => [p, i]).filter(([p]) => p.op);
   card(`<h1>MagTrack OR</h1>
-    <p>Stand at the <b>bottom edge of the board</b> (ch3/ch4 nearest you) and hold the magnet stack like a scalpel, 2–4 cm above it.
+    <p>Stand at the <b>bottom edge of the board</b> (ch3/ch4 nearest you) and hold the magnet stack like an instrument, 2–4 cm above it.
     Lower the tip to cut or touch; lift it to move freely. Steady hands win.</p>
-    <button data-go="case">▶ Start full case (3 procedures)</button>
-    ${PROCS.map((p, i) => `<button data-go="${i}">${p.title.split(' · ')[1]}</button>`).join('')}
+    <h3>Training: learn the controls (x-ray view)</h3>
+    <button data-go="case">▶ Full training (3 drills)</button>
+    ${PROCS.map((p, i) => p.op ? '' : `<button data-go="${i}">${p.title.split(' · ')[1]}</button>`).join('')}
+    ${ops.length ? `<h3>Operations: real multi-step surgeries</h3>${ops.map(([p, i]) => `<button data-go="${i}">${p.title}</button>`).join('')}` : ''}
     <h3>Leaderboard</h3>${leaderboardHtml()}`);
 }
-function clearProc() { while (procGroup.children.length) procGroup.remove(procGroup.children[0]); wobblers.length = 0; pulsers.length = 0; }
+const nTraining = () => PROCS.filter(p => !p.op).length;   // training drills come first; operations are registered after
+function clearProc() {
+  while (procGroup.children.length) procGroup.remove(procGroup.children[0]);
+  wobblers.length = 0; pulsers.length = 0; frameHooks.length = 0;
+}
 function startProc(i) {
-  curIdx = i; cur = PROCS[i]; clearProc(); cur.setup();
+  curIdx = i; cur = PROCS[i]; clearProc();
+  tissue.visible = !cur.op;   // training uses the see-through x-ray membrane; operations build their own body layers
+  setTool(cur.tool || 'scalpel');
+  cur.setup();
   card(`<h1>${cur.title}</h1><p>${cur.objective}</p><p>Time limit ${cur.limit} s. The patient's vitals react to every mistake.</p>
     <button data-go="begin">Begin (Enter)</button>`);
   mode = 'brief'; hud(true);
@@ -651,7 +677,7 @@ function finish(outcome) {
   logEvent({ event: 'or_result', ...res });
   mode = 'result';
   const head = outcome === 'lost' ? '<h1 style="color:#ff5a5a">Patient lost</h1>' : outcome === 'timeout' ? '<h1 style="color:#ffb547">Out of time</h1>' : '<h1>Procedure complete</h1>';
-  const last = soloRun || outcome === 'lost' || curIdx === PROCS.length - 1;
+  const last = soloRun || outcome === 'lost' || curIdx >= nTraining() - 1;
   card(`<div class="grade">${res.grade}</div>${head}<p>${cur.title} · <b>${points}</b> points</p>
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2] >= 0 ? '+' : ''}${Math.round(r[2])}</td></tr>`).join('')}</table>
     <button data-go="${last ? 'report' : 'next'}">${last ? 'Case report (Enter)' : 'Next procedure (Enter)'}</button>`);
@@ -680,7 +706,8 @@ function leaderboardHtml() {
 function saveScore() {
   const name = ($('or-name').value || 'anonymous').trim().slice(0, 16);
   const lb = leaderboard();
-  lb.push({ name, score: reportTotal, detail: caseResults.map(r => r.grade).join(' '), when: new Date().toISOString() });
+  const what = caseResults.length === 1 ? caseResults[0].title.replace(/^.* · /, '') : 'Training';
+  lb.push({ name, score: reportTotal, detail: `${what} ${caseResults.map(r => r.grade).join(' ')}`, when: new Date().toISOString() });
   lb.sort((a, b) => b.score - a.score);
   try { localStorage.setItem(LEADER_KEY, JSON.stringify(lb.slice(0, 10))); } catch (e) {}
   logEvent({ event: 'or_leaderboard', name, score: reportTotal });
@@ -688,7 +715,7 @@ function saveScore() {
 }
 function go(what) {
   if (what === 'case') { soloRun = false; caseResults = []; resetPatient(); startProc(0); }
-  else if (/^\d$/.test(what)) { soloRun = true; caseResults = []; resetPatient(); startProc(+what); }
+  else if (/^\d+$/.test(what)) { soloRun = true; caseResults = []; resetPatient(); startProc(+what); }
   else if (what === 'begin') begin();
   else if (what === 'next') startProc(curIdx + 1);
   else if (what === 'report') report();
@@ -737,4 +764,17 @@ button.onclick = () => {
   logEvent({ event: 'or_open' });
 };
 $('or-exit').onclick = close;
+
+// --- for operations.js: building blocks, live state, and registration ---
+window.MagTrackOR = {
+  SURFACE, SAMPLE_DT, V3, clay, solid, blob, tube, wobble, dots, curvePts, distToPolyline, bloodPool, growPool, cutBlob,
+  say, alarm, chime, tone, ouch, logEvent, tremorMm, setTool,
+  group: procGroup, scene: scene3, skinMat,
+  get tip() { return tip; }, get dir() { return dir; }, get pt() { return pt; }, get sample() { return sample; },
+  setObjective(text) { $('or-obj').textContent = text; },
+  registerTool(name, meshes) { toolModels[name] = meshes; },
+  onFrame(fn) { frameHooks.push(fn); },
+  offFrame(fn) { const i = frameHooks.indexOf(fn); if (i >= 0) frameHooks.splice(i, 1); },
+  register(op) { PROCS.push(op); },
+};
 })();
